@@ -109,13 +109,19 @@ export async function startEmulator(args: {
 
     spawnResult.process.on("close", (e) => {
       clearTimeout(timeout);
-      log("Emulator closed with", e);
+      log("Emulator closed with", e, "and data", scriptOutput);
       rej(
         new Error(
-          `Emulator closed with code ${e}. Check the firebse-debug.log for more details`
+          `Emulator closed with code ${e}. Check the firebase-debug.log for more details`
         )
       );
       spawnResult = undefined as any;
+    });
+
+    let scriptOutput = "";
+    spawnResult.process.stdout!.on("data", function (data) {
+      data = data.toString();
+      scriptOutput += data;
     });
     while (!breakLoop) {
       try {

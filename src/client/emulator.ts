@@ -30,7 +30,11 @@ export const deleteCollection = async (
  */
 export const setupEmulator = async (
   projectId: string,
-  cb: (firestore: ReturnType<typeof firebase.firestore>) => Promise<void>
+  cb: (
+    firestore: ReturnType<typeof firebase.firestore>,
+    storage: ReturnType<typeof firebase.storage>
+  ) => Promise<void>,
+  storageBucket?: string
 ) => {
   const testEnv = await initializeTestEnvironment({
     projectId: projectId,
@@ -38,13 +42,18 @@ export const setupEmulator = async (
       host: "localhost",
       port: _getPort("firestore"),
     },
+    storage: {
+      host: "localhost",
+      port: _getPort("storage"),
+    },
   });
   await testEnv.withSecurityRulesDisabled(async (ctx: any) => {
     await cb(
       ctx.firestore({
         experimentalForceLongPolling: true,
-        merge: true
-      })
+        merge: true,
+      }),
+      ctx.storage(storageBucket)
     );
   });
 };
@@ -146,7 +155,7 @@ const FirebaseConfigEmulatorsShapeExample = {
       port: 8055 as number,
     },
     ui: {
-      enabled: true,
+      enabled: true as boolean,
       port: 4000 as number,
     },
   },

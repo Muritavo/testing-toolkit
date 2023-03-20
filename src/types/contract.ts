@@ -7,7 +7,7 @@ import {
 } from "web3-eth-contract";
 import { AbiItem } from "web3-utils";
 
-export type AllABIs = OnepercentUtility.ApplicationABIs;
+export type AllABIs = readonly any[];
 
 type ExtractMethods<A extends AllABIs[number]> = A extends {
   type: "function";
@@ -21,36 +21,30 @@ type ExtractEvents<A extends AllABIs[number]> = A extends {
   ? A["name"]
   : never;
 
-type TypeOrInternalType<T> = T["internalType"] extends unknown
-  ? T["type"]
-  : T["internalType"];
+type TypeOrInternalType<T> = T['internalType'] extends unknown ? T['type'] : T['internalType']
 
-type MapTypeToJS<L, C> = L extends
-  | "address"
-  | "uint256"
-  | "uint128"
-  | "uint8"
-  | "string"
-  | "bytes32"
+type MapTypeToJS<L, C> =
+  L extends "tuple[]" ? TuplifyUnion<C[number], C[number]['name']>[] :
+  L extends "address" | "uint256" | "uint128" | "uint8" | "string" | "bytes32"
   ? string
+  : L extends "uint256[]" | "string[]"
+  ? string[]
   : L extends "bool"
   ? boolean
-  : L extends "tuple"
-  ? TuplifyUnion<C[number], C[number]["name"]>
+  : L extends 'tuple'
+  ? TuplifyUnion<C[number], C[number]['name']>
   : unknown;
 
-type ExtractFromObj<R extends AllABIs[number] & { type: "function" }> = {
+type ExtractFromObj<R extends (AllABIs[number] & { type: "function" })> = {
   [K in R["outputs"][number]["name"]]: MapTypeToJS<
-    TypeOrInternalType<
-      R["outputs"][number] & {
-        name: K;
-      }
-    >,
+    TypeOrInternalType<(R["outputs"][number] & {
+      name: K;
+    })>,
     (R["outputs"][number] & {
       name: K;
     })["components"]
   >;
-};
+}
 
 export type ExtractMethodDefinition<
   A extends AllABIs,
@@ -59,35 +53,30 @@ export type ExtractMethodDefinition<
     type: "function";
     name: N;
   }
-> = (
-  ...args: TuplifyUnion<
-    (A[number] & {
-      type: "function";
-      name: N;
-    })["inputs"][number],
-    (A[number] & {
-      type: "function";
-      name: N;
-    })["inputs"][number]["name"]
-  >
-) => {
-  call: () => Promise<
-    R extends { outputs: { length: 1 } }
+  > = (
+    ...args: TuplifyUnion<
+      (A[number] & {
+        type: "function";
+        name: N;
+      })["inputs"][number],
+      (A[number] & {
+        type: "function";
+        name: N;
+      })["inputs"][number]["name"]
+    >
+  ) => {
+    call: () => Promise<
+      R extends { outputs: { length: 1 } }
       ? MapTypeToJS<
-          TypeOrInternalType<R["outputs"][0]>,
-          R["outputs"][0]["components"]
-        >
+        TypeOrInternalType<R["outputs"][0]>,
+        R["outputs"][0]['components']
+      >
       : R extends { outputs: any }
       ? ExtractFromObj<R>
       : void
-  >;
-  send: (prop: {
-    from: string;
-    maxPriorityFeePerGas?: number;
-    gas?: number;
-    gasPrice?: string;
-  }) => Promise<void>;
-};
+    >;
+    send: (prop: { from: string, maxPriorityFeePerGas?: number, gas?: number, gasPrice?: string }) => Promise<void>;
+  };
 
 // oh boy don't do this
 type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (
@@ -110,20 +99,20 @@ export type TuplifyUnion<
   T,
   L = LastOf<T>,
   N = [T] extends [never] ? true : false
-> = true extends N
+  > = true extends N
   ? []
   : Push<
-      TuplifyUnion<FUNCS, Exclude<T, L>>,
-      MapTypeToJS<
-        TypeOrInternalType<FUNCS & { name: L }>,
-        (FUNCS & { name: L })["components"]
-      >
-    >;
+    TuplifyUnion<FUNCS, Exclude<T, L>>,
+    MapTypeToJS<
+      TypeOrInternalType<(FUNCS & { name: L })>,
+      (FUNCS & { name: L })['components']
+    >
+  >;
 
-export class GenericContract<
+export default class GenericContract<
   A extends AllABIs = AllABIs,
   E extends string = ExtractEvents<A[number]> | "allEvents"
-> extends Contract {
+  > extends Contract {
   events!: Exclude<E, "allEvents">;
   constructor(jsonInterface: A, address?: string, options?: ContractOptions) {
     super(jsonInterface as unknown as AbiItem[], address, options);
@@ -161,15 +150,18 @@ type ABIEvent = AllABIs[number] & { type: "event" };
 type GenericEvent<
   ABI extends AllABIs,
   E extends string = ExtractEvents<ABI[number]>
-> = {
-  event: E;
-  returnValues: ExtractReturnValues<ABIEvent & { name: E }>;
-};
+  > = {
+    event: E;
+    returnValues: ExtractReturnValues<ABIEvent & { name: E }>;
+  };
 
 type ExtractReturnValues<E extends ABIEvent> = ExtractInputType<
   E["inputs"][number]
 >;
 
 type ExtractInputType<I extends ABIEvent["inputs"][number]> = {
-  [k in I["name"]]: MapTypeToJS<TypeOrInternalType<I>, I["components"]>;
+  [k in I["name"]]: MapTypeToJS<
+    TypeOrInternalType<I>,
+    I['components']
+  >;
 };
