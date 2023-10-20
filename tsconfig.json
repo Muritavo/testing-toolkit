@@ -3,7 +3,8 @@
     "outDir": "dist",
     "sourceMap": true,
     "declaration": true,
-    "rootDir": "src"
+    "rootDir": "src",
+    "skipLibCheck": true
   },
   "include": ["src", "src/types"]
 }

@@ -31,5 +31,9 @@
     "@types/node-fetch": "^2.6.2",
     "node-fetch": "^1",
     "typescript": "^4.8.4"
+  },
+  "peerDependencies": {
+    "ganache": "^7.8.0",
+    "hardhat": "^2.14.1"
   }
 }
