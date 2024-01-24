@@ -29,10 +29,14 @@ export async function startBlockchainNode(nftContractsProjectFolder: string) {
    * This will start a hardhat node
    */
   const serverInstance = server({
-    gasLimit: 99000000000000,
+    miner: {
+      defaultTransactionGasLimit: 99000000000000,
+      callGasLimit: 99000000000000,
+      blockGasLimit: 99000000000000,
+    },
     wallet: {
-        deterministic: true
-    }
+      deterministic: true,
+    },
   });
   const accounts = await serverInstance.listen(15000).then(() => {
     return Object.entries(serverInstance.provider.getInitialAccounts()).reduce(
