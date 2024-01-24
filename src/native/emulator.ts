@@ -1,5 +1,7 @@
 import nodeFetch from "node-fetch";
 import { spawn, ChildProcess } from "child_process";
+import killPort from "kill-port";
+import { LOCALHOST_DOMAIN } from "./consts";
 
 const log = require("debug")("@muritavo/testing-toolkit/emulator");
 let spawnResult: {
@@ -28,7 +30,7 @@ export async function killEmulator() {
       const t = setTimeout(() => {
         spawnResult = undefined as any;
         rej(new Error("Couldn't kill emulator"));
-      }, 10000);
+      }, 20000);
       spawnResult.process.on("close", () => {
         clearTimeout(t);
         r(null);
@@ -46,16 +48,25 @@ export async function killEmulator() {
  * @param args Check property typings for details
  * @returns A promise that resolves when the emulator is ready or fails if the emulator couldn't start or be reached
  */
-export async function startEmulator(args: {
-  /** The project id used by the emulator */
-  projectId: string;
-  /** Optionally indicates the database to import data from */
-  databaseToImport?: string;
-  /** The port where the firebase UI will be running to check if the emulator is up */
-  UIPort: number;
-  /** An optional flag to indicate when a new emulator instance should be created */
-  suiteId?: string;
-}) {
+export async function startEmulator(
+  args: {
+    /** The project id used by the emulator */
+    projectId: string;
+    /** Optionally indicates the database to import data from */
+    databaseToImport?: string;
+    /** The port where the firebase UI will be running to check if the emulator is up */
+    UIPort: number;
+    /** An optional flag to indicate when a new emulator instance should be created */
+    suiteId?: string;
+
+    ports: number[];
+    shouldSaveData: boolean;
+    only:
+      | ("functions" | "hosting" | "firestore" | "storage" | "auth")[]
+      | string[];
+  },
+  isRetry: boolean = false
+) {
   const suiteId = args.suiteId || args.databaseToImport || "default";
   log("Spawning emulator process");
   if (suiteId === spawnResult?.id) {
@@ -69,6 +80,8 @@ export async function startEmulator(args: {
     process: spawn(
       `firebase emulators:start -P ${args.projectId} ${
         args.databaseToImport ? `--import ${args.databaseToImport}` : ""
+      } ${args.shouldSaveData ? `--export-on-exit` : ""} ${
+        args.only.length ? `--only=${args.only.join(",")}` : ""
       }`,
       {
         cwd: undefined,
@@ -107,35 +120,101 @@ export async function startEmulator(args: {
       log("Emulator start sent message", e.toString());
     });
 
-    spawnResult.process.on("close", (e) => {
-      clearTimeout(timeout);
-      log("Emulator closed with", e, "and data", scriptOutput);
-      rej(
-        new Error(
-          `Emulator closed with code ${e}. Check the firebase-debug.log for more details`
-        )
-      );
-      spawnResult = undefined as any;
-    });
-
     let scriptOutput = "";
     spawnResult.process.stdout!.on("data", function (data) {
       data = data.toString();
       scriptOutput += data;
     });
+
+    spawnResult.process.on("close", (e) => {
+      clearTimeout(timeout);
+      log("Emulator closed with", e);
+      const unavailablePorts = args.ports.filter((p) =>
+        scriptOutput.includes(String(p))
+      );
+      const failedWithUnavailablePort = unavailablePorts.length;
+      if (failedWithUnavailablePort) {
+        log(
+          "Killing ports",
+          unavailablePorts,
+          "detected from text",
+          scriptOutput
+        );
+        Promise.all(
+          unavailablePorts.map((p) => killPort(p).catch(() => {}))
+        ).then(() => {
+          if (isRetry === false) return startEmulator(args, true);
+          else
+            rej(
+              new Error(
+                `Some ports were unavailable (${unavailablePorts.join(
+                  ", "
+                )}). They were killed, please try running the emulator again`
+              )
+            );
+        });
+      } else {
+        rej(
+          new Error(
+            `Emulator closed with code ${e}. Check the firebse-debug.log for more details`
+          )
+        );
+      }
+      spawnResult = undefined as any;
+    });
     while (!breakLoop) {
       try {
         log("Checking if emulator is up");
-        await nodeFetch(`http://localhost:${args.UIPort}`);
+        await nodeFetch(`http://${LOCALHOST_DOMAIN}:${args.UIPort}`);
         log("Emulator is up and ready");
         clearTimeout(timeout);
         breakLoop = true;
         r(null);
       } catch (e) {
+        log(e);
         log("Process is killed: ", spawnResult?.process.killed);
         log("Emulator is not ready yet, retrying in 1 sec");
       }
       await WaitTimeout(1000);
     }
   });
+}
+
+type Admin = ReturnType<typeof _getAuthAdminInstance>;
+type KeysWithValsOfType<T, V> = keyof {
+  [P in keyof T as T[P] extends V ? P : never]: P;
+};
+
+export async function invokeAuthAdmin<
+  F extends KeysWithValsOfType<Admin, (...params: any[]) => any>
+>({
+  projectId,
+  port,
+  functionName,
+  params,
+}: {
+  projectId: string;
+  port: string;
+  functionName: F;
+  params: Parameters<Admin[F]>;
+}) {
+  const app = _getAuthAdminInstance(projectId, port);
+  const func = app[functionName];
+  await (func.bind(app) as any)(...params);
+  return null;
+}
+
+let adminApp: {
+  [projectId: string]: ReturnType<
+    typeof import("firebase-admin/app")["initializeApp"]
+  >;
+} = {};
+
+async function _getAuthAdminInstance(projectId: string, authPort: string) {
+  const { initializeApp } = require("firebase-admin/app");
+  const { getAuth } = require("firebase-admin/auth");
+  process.env.FIREBASE_AUTH_EMULATOR_HOST = `${LOCALHOST_DOMAIN}:${authPort}`;
+  adminApp[projectId] =
+    adminApp[projectId] || initializeApp({ projectId }, projectId);
+  return getAuth(adminApp[projectId]);
 }

@@ -1,6 +1,7 @@
 import nodeFetch from "node-fetch";
 import { initializeTestEnvironment } from "@firebase/rules-unit-testing";
 import firebase from "firebase/compat";
+import { LOCALHOST_DOMAIN } from "../native/consts";
 
 let emulatorConfig: FirebaseConfigShape;
 
@@ -14,7 +15,7 @@ export const deleteCollection = async (
   collectionPath: string
 ) => {
   await nodeFetch(
-    `http://localhost:${_getPort(
+    `http://${LOCALHOST_DOMAIN}:${_getPort(
       "firestore"
     )}/emulator/v1/projects/${projectId}/databases/(default)/documents${collectionPath}`,
     {
@@ -39,11 +40,11 @@ export const setupEmulator = async (
   const testEnv = await initializeTestEnvironment({
     projectId: projectId,
     firestore: {
-      host: "localhost",
+      host: LOCALHOST_DOMAIN,
       port: _getPort("firestore"),
     },
     storage: {
-      host: "localhost",
+      host: LOCALHOST_DOMAIN,
       port: _getPort("storage"),
     },
   });
@@ -71,7 +72,7 @@ export const addAuthUser = async (
   localId: string = ""
 ) => {
   const result = await nodeFetch(
-    `http://localhost:${_getPort(
+    `http://${LOCALHOST_DOMAIN}:${_getPort(
       "auth"
     )}/identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts`,
     {
@@ -99,7 +100,7 @@ export const addAuthUser = async (
  */
 export const clearAuth = async (projectId: string) => {
   const result = await nodeFetch(
-    `http://localhost:${_getPort(
+    `http://${LOCALHOST_DOMAIN}:${_getPort(
       "auth"
     )}/emulator/v1/projects/${projectId}/accounts`,
     {
@@ -126,7 +127,7 @@ export const clearFirestore = async (projectId: string) => {
   const testEnv = await initializeTestEnvironment({
     projectId: projectId,
     firestore: {
-      host: "localhost",
+      host: LOCALHOST_DOMAIN,
       port: _getPort("firestore"),
     },
   });
