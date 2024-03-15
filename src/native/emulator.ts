@@ -132,7 +132,7 @@ export async function startEmulator(
       const unavailablePorts = args.ports.filter((p) =>
         scriptOutput.includes(String(p))
       );
-      const failedWithUnavailablePort = unavailablePorts.length;
+      const failedWithUnavailablePort = unavailablePorts.length && e !== 0;
       if (failedWithUnavailablePort) {
         log(
           "Killing ports",
@@ -156,7 +156,9 @@ export async function startEmulator(
       } else {
         rej(
           new Error(
-            `Emulator closed with code ${e}. Check the firebse-debug.log for more details`
+            `Emulator closed with code ${e}. Check the firebase-debug.log for more details.
+Command output was:
+${scriptOutput}`
           )
         );
       }
@@ -198,7 +200,7 @@ export async function invokeAuthAdmin<
   functionName: F;
   params: Parameters<Admin[F]>;
 }) {
-  const app = _getAuthAdminInstance(projectId, port);
+  const app = await _getAuthAdminInstance(projectId, port);
   const func = app[functionName];
   await (func.bind(app) as any)(...params);
   return null;
