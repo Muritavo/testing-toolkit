@@ -1,6 +1,6 @@
 {
   "name": "@muritavo/testing-toolkit",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A series of functions to help with testing",
   "main": "index.js",
   "files": [
@@ -23,10 +23,10 @@
   "devDependencies": {
     "firebase": "^9.10.0",
     "firebase-admin": "^11.5.0",
-    "text2png": "^2.3.0",
-    "web3": "^1.8.0",
     "ganache": "^7.8.0",
-    "hardhat": "^2.14.1"
+    "hardhat": "^2.14.1",
+    "text2png": "^2.3.0",
+    "web3": "^1.8.0"
   },
   "dependencies": {
     "@firebase/rules-unit-testing": "^2.0.4",
@@ -34,6 +34,6 @@
     "@types/node-fetch": "^2.6.2",
     "kill-port": "^2.0.1",
     "node-fetch": "^1",
-    "typescript": "^4.8.4"
+    "typescript": "^5.4.2"
   }
 }
