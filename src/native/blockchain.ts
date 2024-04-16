@@ -126,7 +126,7 @@ async function initHardhat(dir: string) {
   }
 }
 
-async function deployContract({
+export async function deployContract({
   contractName,
   args,
 }: {
