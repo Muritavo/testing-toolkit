@@ -1,5 +1,7 @@
 import debug from "debug";
 import { TASK_NODE_SERVER_READY } from "hardhat/builtin-tasks/task-names";
+import { FormatTypes } from "@ethersproject/abi";
+import GenericContract from "../types/contract";
 const logger = debug("@muritavo/testing-toolkit/blockchain");
 
 // This register the tasks for deploying a hardhat blockchain
@@ -11,7 +13,9 @@ type Addresses = {
   };
 };
 let instance: {
-  process: typeof import("hardhat");
+  process: typeof import("hardhat") & {
+    ethers: import("@nomiclabs/hardhat-ethers/types").HardhatEthersHelpers;
+  };
   rootFolder?: string;
   contracts: {
     [id: string]: {
@@ -19,6 +23,7 @@ let instance: {
     };
   };
   addresses: Addresses;
+  port: number;
 } | null;
 
 export async function startBlockchain({
@@ -53,9 +58,7 @@ export async function startBlockchain({
   /**
    * This will start a hardhat node
    */
-  const serverInstance = (await initHardhat(
-    projectFolder
-  )) as typeof import("hardhat");
+  const serverInstance = await initHardhat(projectFolder);
   await new Promise<void>((r, rej) => {
     const timeoutId = setTimeout(() => {
       rej(new Error(`Something went wrong while starting hardhat node`));
@@ -86,6 +89,7 @@ export async function startBlockchain({
     rootFolder: projectFolder,
     contracts: {},
     addresses: accounts,
+    port,
   };
   return accounts;
 }
@@ -119,14 +123,16 @@ async function initHardhat(dir: string) {
       }
     })()) as typeof import("hardhat");
     process.chdir(startingDir);
-    return hardhat as any;
+    return hardhat as typeof hardhat & {
+      ethers: import("@nomiclabs/hardhat-ethers/types").HardhatEthersHelpers;
+    };
   } catch (e) {
     process.chdir(startingDir);
     throw e;
   }
 }
 
-export async function deployContract({
+export async function deployContract<ABI extends any[] = []>({
   contractName,
   args,
 }: {
@@ -143,6 +149,14 @@ export async function deployContract({
       throw new Error(
         `You are trying to deploy a contract without defining the Blockchain Project folder. Please define it at startBlockchain command.`
       );
+    const getContract = () => {
+      const Web3 = require("web3");
+      const web3 = new Web3(`ws://127.0.0.1:${instance.port}`);
+      return new web3.eth.Contract(
+        lock.interface.format(FormatTypes.json) as any,
+        lock.address
+      ) as GenericContract<ABI>;
+    };
     const { ethers } = await initHardhat(instance!.rootFolder);
     const [owner] = await ethers.getSigners();
     const Factory = await ethers.getContractFactory(contractName);
@@ -162,11 +176,13 @@ export async function deployContract({
       return {
         address: lock.address,
         owner: owner.address,
+        contract: getContract(),
       };
     } else {
       return {
         address: lock.address,
         owner: owner.address,
+        contract: getContract(),
       };
     }
   } catch (e) {
