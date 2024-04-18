@@ -2,7 +2,7 @@ import GenericContract from "../types/contract";
 import Web3 from "web3";
 
 export async function invokeContract<
-  C extends GenericContract<any>,
+  C extends GenericContract<any[]>,
   M extends keyof C["methods"]
 >(
   wallet: string,
@@ -24,7 +24,8 @@ export async function invokeContract<
     });
 
   const call: any = (contract.methods[contractMethodName as string] as any)(
-    ...params
+    /// @ts-ignore
+    ...(params as any)
   ).send({
     from: wallet,
     gas: 90000000,
