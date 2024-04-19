@@ -149,8 +149,8 @@ export async function deployContract<ABI extends any[] = []>({
       throw new Error(
         `You are trying to deploy a contract without defining the Blockchain Project folder. Please define it at startBlockchain command.`
       );
-    const getContract = () => {
-      const Web3 = require("web3");
+    const getContract = async () => {
+      const { default: Web3 } = await import("web3");
       const web3 = new Web3(`ws://127.0.0.1:${instance.port}`);
       return new web3.eth.Contract(
         lock.interface.format(FormatTypes.json) as any,
@@ -176,13 +176,13 @@ export async function deployContract<ABI extends any[] = []>({
       return {
         address: lock.address,
         owner: owner.address,
-        contract: getContract(),
+        contract: await getContract(),
       };
     } else {
       return {
         address: lock.address,
         owner: owner.address,
-        contract: getContract(),
+        contract: await getContract(),
       };
     }
   } catch (e) {

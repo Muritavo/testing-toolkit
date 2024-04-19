@@ -31,7 +31,8 @@
     "jest": "^29.7.0",
     "text2png": "^2.3.0",
     "ts-jest": "^29.1.2",
-    "web3": "^1"
+    "web3": "^1",
+    "web3v4": "npm:web3@4.1.0"
   },
   "dependencies": {
     "@firebase/rules-unit-testing": "^2.0.4",

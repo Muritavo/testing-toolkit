@@ -1,15 +1,37 @@
-import GenericContract from "../types/contract";
+import GenericContract, { MapTypeToJS } from "../types/contract";
 import Web3 from "web3";
 
-export async function invokeContract<
-  C extends GenericContract<any[]>,
-  M extends keyof C["methods"]
->(
+/** @internal */
+type ArrayExceptFirst<F> = F extends [arg0: any, ...rest: infer R] ? R : never;
+
+/** @internal */
+type TupleToFunctionTuple<
+  A,
+  T,
+  /// @ts-expect-error
+  F = T[0],
+  N = [F] extends [undefined] ? true : false
+> = true extends N ? [] : [F, ...TupleToFunctionTuple<A, ArrayExceptFirst<T>>];
+
+/// @ts-expect-error
+export async function invokeContract<C, M extends keyof C["methods"]>(
   wallet: string,
-  contract: C,
+  _contract: C,
   contractMethodName: M,
+  /// @ts-expect-error
   ...params: Parameters<C["methods"][M]>
-) {
+): Promise<
+  C extends GenericContract<infer ABI>
+    ? // If the ABI method is of state view
+      (ABI[number] & { name: M })["stateMutability"] extends "view"
+      ? // Returns the output type
+        MapTypeToJS<(ABI[number] & { name: M })["outputs"][0]["type"], []>
+      : // Or else, keep the old return
+        never
+    : // It should never fall here
+      never
+> {
+  const contract = _contract as GenericContract<any[]>;
   const abiDefinition = (contract as any)._jsonInterface.find(
     (a: any) => a.name === contractMethodName
   );
