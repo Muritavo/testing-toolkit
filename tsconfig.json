@@ -6,5 +6,5 @@
     "skipLibCheck": true,
     "esModuleInterop": true
   },
-  "include": ["src", "src/types", "test"]
+  "include": ["src", "src/types"]
 }
