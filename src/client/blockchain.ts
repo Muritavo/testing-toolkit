@@ -53,7 +53,9 @@ export async function invokeContract<C, M extends keyof C["methods"]>(
     gas: 90000000,
     gasPrice: "90000000000",
   });
-  const web3 = new Web3(`ws://${"127.0.0.1"}:${8545}`);
+  const web3 = new Web3(
+    new Web3.providers.WebsocketProvider(`ws://${"127.0.0.1"}:${8545}`)
+  );
   return new Promise<void>(async (r, rej) => {
     const txHash = await new Promise<string>((r, rej) => {
       call.on("transactionHash", (tX: string) => {

@@ -5,13 +5,7 @@ import GenericContract from "../types/contract";
 const logger = debug("@muritavo/testing-toolkit/blockchain");
 
 // This register the tasks for deploying a hardhat blockchain
-type Addresses = {
-  [address: string]: {
-    balance: number;
-    unlocked: number;
-    secretKey: string;
-  };
-};
+type Addresses = { [wallet: string]: { secretKey: string } };
 let instance: {
   process: typeof import("hardhat") & {
     ethers: import("@nomiclabs/hardhat-ethers/types").HardhatEthersHelpers;
@@ -83,7 +77,7 @@ export async function startBlockchain({
           secretKey: account.key,
         },
       };
-    }, {});
+    }, {}) as { [wallet: string]: { secretKey: string } };
   instance = {
     process: serverInstance,
     rootFolder: projectFolder,
@@ -151,9 +145,11 @@ export async function deployContract<ABI extends any[] = []>({
       );
     const getContract = async () => {
       const { default: Web3 } = await import("web3");
-      const web3 = new Web3(`ws://127.0.0.1:${instance.port}`);
+      const web3 = new Web3(
+        new Web3.providers.WebsocketProvider(`ws://127.0.0.1:${instance.port}`)
+      );
       return new web3.eth.Contract(
-        lock.interface.format(FormatTypes.json) as any,
+        JSON.parse(lock.interface.format(FormatTypes.json) as string),
         lock.address
       ) as GenericContract<ABI>;
     };
