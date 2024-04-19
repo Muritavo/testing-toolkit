@@ -1,17 +1,10 @@
 import GenericContract, { MapTypeToJS } from "../types/contract";
 import Web3 from "web3";
 
-/** @internal */
-type ArrayExceptFirst<F> = F extends [arg0: any, ...rest: infer R] ? R : never;
-
-/** @internal */
-type TupleToFunctionTuple<
-  A,
-  T,
-  /// @ts-expect-error
-  F = T[0],
-  N = [F] extends [undefined] ? true : false
-> = true extends N ? [] : [F, ...TupleToFunctionTuple<A, ArrayExceptFirst<T>>];
+let port = 8545;
+export function setPort(_port: number) {
+  port = _port;
+}
 
 /// @ts-expect-error
 export async function invokeContract<C, M extends keyof C["methods"]>(
@@ -54,7 +47,7 @@ export async function invokeContract<C, M extends keyof C["methods"]>(
     gasPrice: "90000000000",
   });
   const web3 = new Web3(
-    new Web3.providers.WebsocketProvider(`ws://${"127.0.0.1"}:${8545}`)
+    new Web3.providers.HttpProvider(`http://${"127.0.0.1"}:${port}`)
   );
   return new Promise<void>(async (r, rej) => {
     const txHash = await new Promise<string>((r, rej) => {

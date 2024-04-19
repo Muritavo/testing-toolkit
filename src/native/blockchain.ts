@@ -126,10 +126,12 @@ async function initHardhat(dir: string) {
   }
 }
 
-export async function deployContract<ABI extends any[] = []>({
+export async function deployContract<const ABI extends any[] = []>({
+  contractAbi,
   contractName,
   args,
 }: {
+  contractAbi: ABI;
   contractName: string;
   args: any[];
 }) {
@@ -146,16 +148,19 @@ export async function deployContract<ABI extends any[] = []>({
     const getContract = async () => {
       const { default: Web3 } = await import("web3");
       const web3 = new Web3(
-        new Web3.providers.WebsocketProvider(`ws://127.0.0.1:${instance.port}`)
+        new Web3.providers.HttpProvider(
+          `http://${"127.0.0.1"}:${instance.port}`
+        )
       );
       return new web3.eth.Contract(
-        JSON.parse(lock.interface.format(FormatTypes.json) as string),
+        contractAbi,
         lock.address
       ) as GenericContract<ABI>;
     };
     const { ethers } = await initHardhat(instance!.rootFolder);
     const [owner] = await ethers.getSigners();
     const Factory = await ethers.getContractFactory(contractName);
+
     const lock = await Factory.deploy();
     await lock.deployed();
 
