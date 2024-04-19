@@ -23,7 +23,7 @@ type ExtractEvents<A extends AllABIs[number]> = A extends {
 
 type TypeOrInternalType<T> = T['internalType'] extends unknown ? T['type'] : T['internalType']
 
-type MapTypeToJS<L, C> =
+export type MapTypeToJS<L, C> =
   L extends "tuple[]" ? TuplifyUnion<C[number], C[number]['name']>[] :
   L extends "address" | "uint256" | "uint128" | "uint8" | "string" | "bytes32"
   ? string
