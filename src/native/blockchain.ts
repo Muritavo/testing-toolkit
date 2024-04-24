@@ -1,6 +1,5 @@
 import debug from "debug";
 import { TASK_NODE_SERVER_READY } from "hardhat/builtin-tasks/task-names";
-import { FormatTypes } from "@ethersproject/abi";
 import GenericContract from "../types/contract";
 const logger = debug("@muritavo/testing-toolkit/blockchain");
 
