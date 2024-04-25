@@ -1,5 +1,4 @@
 import debug from "debug";
-import { TASK_NODE_SERVER_READY } from "hardhat/builtin-tasks/task-names";
 import GenericContract from "../types/contract";
 const logger = debug("@muritavo/testing-toolkit/blockchain");
 
@@ -7,7 +6,7 @@ const logger = debug("@muritavo/testing-toolkit/blockchain");
 type Addresses = { [wallet: string]: { secretKey: string } };
 let instance: {
   process: typeof import("hardhat") & {
-    ethers: import("@nomiclabs/hardhat-ethers/types").HardhatEthersHelpers;
+    ethers: import("@nomicfoundation/hardhat-ethers/types").HardhatEthersHelpers;
   };
   rootFolder?: string;
   contracts: {
@@ -56,7 +55,9 @@ export async function startBlockchain({
     const timeoutId = setTimeout(() => {
       rej(new Error(`Something went wrong while starting hardhat node`));
     }, 30000);
-    serverInstance.tasks[TASK_NODE_SERVER_READY].setAction(async () => {
+    serverInstance.tasks[
+      serverInstance.taskNames.TASK_NODE_SERVER_READY
+    ].setAction(async () => {
       clearTimeout(timeoutId);
       r();
     });
@@ -90,7 +91,7 @@ export async function startBlockchain({
 function deployer(index: number = 0, hardhat: any) {
   const ethers = hardhat.ethers;
   const accounts = hardhat.config.networks.hardhat.accounts;
-  const wallet = ethers.Wallet.fromMnemonic(
+  const wallet = ethers.Wallet.fromPhrase(
     accounts.mnemonic,
     accounts.path + `/${index}`
   );
@@ -105,19 +106,18 @@ async function initHardhat(dir: string) {
   process.chdir(dir);
   try {
     const hardhat = (await (async () => {
-      try {
-        return require("hardhat");
-      } catch (e) {
-        console.log(
-          "Requiring hardhat failed... Trying using import... Check the error below\n",
-          e
-        );
-        return (await import("hardhat")).default;
-      }
-    })()) as typeof import("hardhat");
+      if (require) return require("hardhat");
+      else return (await import("hardhat")).default;
+    })()) as typeof import("hardhat") & {
+      taskNames: typeof import("hardhat/builtin-tasks/task-names");
+    };
+    hardhat.taskNames = (await (async () => {
+      if (require) return require("hardhat/builtin-tasks/task-names");
+      else return await import("hardhat/builtin-tasks/task-names");
+    })()) as typeof import("hardhat/builtin-tasks/task-names");
     process.chdir(startingDir);
     return hardhat as typeof hardhat & {
-      ethers: import("@nomiclabs/hardhat-ethers/types").HardhatEthersHelpers;
+      ethers: import("@nomicfoundation/hardhat-ethers/types").HardhatEthersHelpers;
     };
   } catch (e) {
     process.chdir(startingDir);
@@ -153,7 +153,7 @@ export async function deployContract<const ABI extends any[] = []>({
       );
       return new web3.eth.Contract(
         contractAbi,
-        lock.address
+        await lock.getAddress()
       ) as GenericContract<ABI>;
     };
     const { ethers } = await initHardhat(instance!.rootFolder);
@@ -161,15 +161,20 @@ export async function deployContract<const ABI extends any[] = []>({
     const Factory = await ethers.getContractFactory(contractName);
 
     const lock = await Factory.deploy();
-    await lock.deployed();
+    await lock.waitForDeployment();
 
     if (args.length > 0) {
       logger(`Initializing contract with owner ${owner} and args ${args}`);
       const connection = lock.connect(owner);
-      const initializationKey =
-        Object.keys(connection.functions).find(
-          (a) => a.split(",", args.length) && a.startsWith("initialize(")
-        ) || "initialize";
+      let initializationKey = "initialize";
+      connection.interface.forEachFunction((func) => {
+        const funcName = func.name;
+        if (
+          funcName.split(",", args.length) &&
+          funcName.startsWith("initialize(")
+        )
+          initializationKey = funcName;
+      });
       if (connection[initializationKey]) {
         await connection[initializationKey](...args);
       }
