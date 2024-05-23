@@ -1,6 +1,6 @@
 {
   "name": "@muritavo/testing-toolkit",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "A series of functions to help with testing",
   "main": "index.js",
   "files": [
