@@ -3,3 +3,10 @@ dist/
 cache/
 artifacts/
 hardhat.config.cjs
+# Subgraph
+test/graphs/**/generated
+test/graphs/**/build
+# Matchstick
+test/graphs/**/tests/.*
+# Docker compose volume
+data/

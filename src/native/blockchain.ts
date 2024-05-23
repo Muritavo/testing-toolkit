@@ -1,6 +1,12 @@
 import debug from "debug";
 import GenericContract from "../types/contract";
-const logger = debug("@muritavo/testing-toolkit/blockchain");
+import { setPort } from "../client/blockchain";
+import { execSync } from "child_process";
+import { wait } from "../utility";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { resolve } from "path";
+
+export const blockchainLogger = debug("@muritavo/testing-toolkit/blockchain");
 
 // This register the tasks for deploying a hardhat blockchain
 type Addresses = { [wallet: string]: { secretKey: string } };
@@ -21,6 +27,7 @@ let instance: {
 export async function startBlockchain({
   projectRootFolder: projectFolder,
   port = 8545,
+  graphqlProject,
 }: {
   /** The NFT projects root folder so the contracts can be deployed from */
   projectRootFolder: string;
@@ -29,6 +36,10 @@ export async function startBlockchain({
    * @default 8545
    * */
   port?: number;
+  /**
+   * Adds support for graphql for listening to blockchain events and indexing information.
+   */
+  graphqlProject?: string;
 }) {
   if (instance) {
     const prevFork = instance.process.config.networks.hardhat.forking;
@@ -44,9 +55,16 @@ export async function startBlockchain({
           },
         ],
       });
+
     return instance.addresses;
   }
-  if (projectFolder) logger(`Starting blockchain server at "${projectFolder}"`);
+  if (projectFolder)
+    blockchainLogger(`Starting blockchain server at "${projectFolder}"`);
+  if (graphqlProject)
+    execSync("docker-compose up --detach", {
+      cwd: graphqlProject,
+      stdio: "ignore",
+    });
   /**
    * This will start a hardhat node
    */
@@ -85,6 +103,7 @@ export async function startBlockchain({
     addresses: accounts,
     port,
   };
+  setPort(port);
   return accounts;
 }
 
@@ -134,7 +153,7 @@ export async function deployContract<const ABI extends any[] = []>({
   contractName: string;
   args: any[];
 }) {
-  logger(
+  blockchainLogger(
     `Deploying contract ${contractName} with ${args.length} parameters ${args
       .map((a) => `${a} (${Array.isArray(a) ? "array" : typeof a})`)
       .join(", ")}`
@@ -164,7 +183,9 @@ export async function deployContract<const ABI extends any[] = []>({
     await lock.waitForDeployment();
 
     if (args.length > 0) {
-      logger(`Initializing contract with owner ${owner} and args ${args}`);
+      blockchainLogger(
+        `Initializing contract with owner ${owner} and args ${args}`
+      );
       const connection = lock.connect(owner);
       let initializationKey = "initialize";
       connection.interface.forEachFunction((func) => {
@@ -179,19 +200,78 @@ export async function deployContract<const ABI extends any[] = []>({
         await connection[initializationKey](...args);
       }
       return {
-        address: lock.address,
-        owner: owner.address,
+        address: await lock.getAddress(),
+        owner: await owner.getAddress(),
         contract: await getContract(),
       };
     } else {
       return {
-        address: lock.address,
-        owner: owner.address,
+        address: await lock.getAddress(),
+        owner: await owner.getAddress(),
         contract: await getContract(),
       };
     }
   } catch (e) {
-    logger(`Something has gone wrong`, e);
+    blockchainLogger(`Something has gone wrong`, e);
     throw e;
   }
+}
+
+/**
+ * Takes a graph and deploys it into the graph-node
+ */
+export async function deployGraph(
+  graphPath: string,
+  contractAddresses: {
+    [deployedContractName: string]: string;
+  }
+) {
+  const { parse, stringify } = await import("yaml");
+  const { default: cacheDir } = await import("find-cache-dir");
+  function generateGraphManifest() {
+    const graphManifestCacheDir = cacheDir({ name: `graph-manifest` });
+    const subgraphYml = parse(
+      readFileSync(resolve(graphPath, "subgraph.yaml")).toString()
+    );
+    function relativeToAbsolutePath(relativePath: string) {
+      return resolve(graphPath, relativePath);
+    }
+    subgraphYml.schema.file = relativeToAbsolutePath(subgraphYml.schema.file);
+    for (let dataSource of subgraphYml.dataSources) {
+      dataSource.network = "localhost";
+      if (!contractAddresses[dataSource.source.abi])
+        throw new Error(
+          `Please, provide the address for the contract "${dataSource.source.abi}" deployed on the local hardhat node`
+        );
+      dataSource.source.address = contractAddresses[dataSource.source.abi];
+      dataSource.mapping.file = relativeToAbsolutePath(dataSource.mapping.file);
+      for (let abi of dataSource.mapping.abis)
+        abi.file = relativeToAbsolutePath(abi.file);
+    }
+    const graphManifestPath = resolve(graphManifestCacheDir, `subgraph.yaml`);
+    if (!existsSync(graphManifestCacheDir))
+      mkdirSync(graphManifestCacheDir, { recursive: true });
+    writeFileSync(graphManifestPath, stringify(subgraphYml));
+    return graphManifestPath;
+  }
+  const stdioMode = blockchainLogger.enabled ? undefined : "ignore";
+  while (true) {
+    try {
+      execSync("yarn create-local", {
+        cwd: graphPath,
+        stdio: stdioMode,
+      });
+      break;
+    } catch (error) {
+      await wait(1000);
+    }
+  }
+
+  const localhostGraphManifest = generateGraphManifest();
+  execSync(`yarn deploy-local ${localhostGraphManifest} -l v0.0.1`, {
+    cwd: graphPath,
+    stdio: stdioMode,
+  });
+
+  await wait(1000);
 }

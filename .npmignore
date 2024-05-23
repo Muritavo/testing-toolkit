@@ -1,0 +1,2 @@
+# The docker compose in this cenario is used for graphql related tests. It should not be published with sources
+docker-compose.yml

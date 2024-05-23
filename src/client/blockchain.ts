@@ -1,9 +1,24 @@
 import GenericContract, { MapTypeToJS } from "../types/contract";
 import Web3 from "web3";
 
-let port = 8545;
+let port: number;
+/**
+ * For future me: This is needed because when using
+ * on cypress-toolkit "startblockchain" and "invokecontract"
+ * are run in different contexts, so the port variable cannot be
+ * shared.
+ */
 export function setPort(_port: number) {
   port = _port;
+}
+
+function _getPort() {
+  if (!port)
+    throw new Error(
+      `Please, indicate the port that the blockchain node is running (by default it runs on 8545) 
+using the setPort from "@muritavo/testing-toolkit/dist/client/blockchain"`
+    );
+  return port;
 }
 
 /// @ts-expect-error
@@ -47,7 +62,7 @@ export async function invokeContract<C, M extends keyof C["methods"]>(
     gasPrice: "90000000000",
   });
   const web3 = new Web3(
-    new Web3.providers.HttpProvider(`http://${"127.0.0.1"}:${port}`)
+    new Web3.providers.HttpProvider(`http://${"127.0.0.1"}:${_getPort()}`)
   );
   return new Promise<void>(async (r, rej) => {
     const txHash = await new Promise<string>((r, rej) => {

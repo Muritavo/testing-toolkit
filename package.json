@@ -9,7 +9,9 @@
   "scripts": {
     "dev": "tsc --watch",
     "prepack": "tsc",
-    "test": "jest --watchAll"
+    "test": "jest --watchAll",
+    "graph-codegen": "cd ./test/graphs/simple-graph && graph codegen",
+    "graph-build": "cd ./test/graphs/simple-graph && graph build"
   },
   "repository": {
     "type": "git",
@@ -22,24 +24,31 @@
   },
   "homepage": "https://github.com/Muritavo/testing-toolkit#readme",
   "devDependencies": {
+    "@apollo/client": "^3.10.4",
+    "@graphprotocol/graph-ts": "^0.35.1",
     "@nomicfoundation/hardhat-ethers": "^3.0.5",
+    "@types/debug": "^4.1.12",
     "@types/jest": "^29.5.12",
     "ethers": "^6.12.0",
+    "find-cache-dir": "^3.0.0",
     "firebase": "^9.10.0",
     "firebase-admin": "^11.5.0",
     "ganache": "^7.8.0",
+    "graphql": "^16.8.1",
     "hardhat": "^2.14.1",
     "jest": "^29.7.0",
+    "react": "^18.3.1",
     "text2png": "^2.3.0",
     "ts-jest": "^29.1.2",
     "web3": "^1",
-    "web3v4": "npm:web3@4.1.0"
+    "web3v4": "npm:web3@4.1.0",
+    "yaml": "^2.4.2"
   },
   "dependencies": {
     "@firebase/rules-unit-testing": "^2.0.4",
     "@types/kill-port": "^2.0.3",
     "@types/node-fetch": "^2.6.2",
-    "kill-port": "^2.0.1",
+    "kill-port": "^1.6.0",
     "node-fetch": "^1",
     "typescript": "^5.4.2"
   }
