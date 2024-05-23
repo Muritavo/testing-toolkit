@@ -108,12 +108,10 @@ export async function startBlockchain({
 }
 
 function deployer(index: number = 0, hardhat: any) {
-  const ethers = hardhat.ethers;
+  const ethers = hardhat.ethers as typeof import("ethers");
   const accounts = hardhat.config.networks.hardhat.accounts;
-  const wallet = ethers.Wallet.fromPhrase(
-    accounts.mnemonic,
-    accounts.path + `/${index}`
-  );
+  const mainWallet = ethers.Wallet.fromPhrase(accounts.mnemonic);
+  const wallet = mainWallet.deriveChild(index);
   return {
     key: wallet.privateKey,
     address: wallet.address,
