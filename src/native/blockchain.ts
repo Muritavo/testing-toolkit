@@ -88,7 +88,7 @@ export async function startBlockchain({
   )
     .fill(undefined)
     .reduce((res, _, idx) => {
-      const account = deployer(idx, serverInstance);
+      const account = deriveWallet(idx, serverInstance);
       return {
         ...res,
         [account.address]: {
@@ -107,11 +107,13 @@ export async function startBlockchain({
   return accounts;
 }
 
-function deployer(index: number = 0, hardhat: any) {
+export function deriveWallet(index: number = 0, hardhat: any) {
   const ethers = hardhat.ethers as typeof import("ethers");
   const accounts = hardhat.config.networks.hardhat.accounts;
-  const mainWallet = ethers.Wallet.fromPhrase(accounts.mnemonic);
-  const wallet = mainWallet.deriveChild(index);
+  const wallet = ethers.HDNodeWallet.fromMnemonic(
+    ethers.Mnemonic.fromPhrase(accounts.mnemonic),
+    accounts.path + `/${index}`
+  );
   return {
     key: wallet.privateKey,
     address: wallet.address,

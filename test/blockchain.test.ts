@@ -1,46 +1,39 @@
 import { resolve } from "path";
 import {
-  blockchainLogger,
   deployContract,
   deployGraph,
+  deriveWallet,
   startBlockchain,
 } from "../src/native/blockchain";
 import { invokeContract, setPort } from "../src/client/blockchain";
-import { parse, stringify } from "yaml";
-import { readFileSync, writeFileSync } from "fs";
 import { ApolloClient, InMemoryCache, gql } from "@apollo/client";
 import { execSync } from "child_process";
 import killPort from "kill-port";
-import debug from "debug";
 
-jest.mock("web3", () => require("web3v4"));
-
-const log = "ignore";
-// undefined;
-
-async function cleanPreviousNodes() {
-  execSync("yarn graph-local-clean", {
-    cwd: resolve(__dirname, ".."),
-    stdio: log,
+describe("Wallet", () => {
+  it("Should be able to derive wallets", async () => {
+    deriveWallet(0, {
+      ethers: await import("ethers"),
+      config: {
+        networks: {
+          hardhat: {
+            accounts: {
+              path: "m/44'/60'/0'/0",
+              mnemonic:
+                "test test test test test test test test test test test junk",
+            },
+          },
+        },
+      },
+    });
   });
-  try {
-    await killPort(19008);
-  } catch (error) {}
-}
-
-async function wait(sec: number) {
-  return await new Promise((r) => {
-    setTimeout(() => {
-      r(null);
-    }, 1000 * sec);
-  });
-}
+});
 
 describe("GraphQL", () => {
   beforeEach(async () => {
     await cleanPreviousNodes();
   });
-  it.only("Should be able to deploy a graph to local node", async () => {
+  it("Should be able to deploy a graph to local node", async () => {
     async function setupBlockchainNode() {
       const wallets = await startBlockchain({
         projectRootFolder: resolve(__dirname, ".."),
@@ -102,7 +95,7 @@ describe("GraphQL", () => {
   });
 });
 
-it("Should be able to spin up blockchain server forking a preexisting network", async () => {
+it.only("Should be able to spin up blockchain server forking a preexisting network", async () => {
   setPort(19000);
   const wallets = await startBlockchain({
     projectRootFolder: resolve(__dirname, ".."),
@@ -112,12 +105,13 @@ it("Should be able to spin up blockchain server forking a preexisting network", 
   await invokeContract(Object.keys(wallets)[0], contract, "echo", "0x9").then(
     (r) => console.log("Invoke return", r)
   );
-  await invokeContract(
-    Object.keys(wallets)[0],
-    contract,
-    "echoSend",
-    "0x9"
-  ).then((r) => console.log("Invoke return", r));
+  for (let idx of [0, 1])
+    await invokeContract(
+      Object.keys(wallets)[idx],
+      contract,
+      "echoSend",
+      "0x9"
+    ).then((r) => console.log("Invoke return", r));
 });
 
 async function deployTestContract() {
@@ -158,5 +152,28 @@ async function deployTestContract() {
     ],
     contractName: "SimpleContract",
     args: [],
+  });
+}
+
+jest.mock("web3", () => require("web3v4"));
+
+const log = "ignore";
+// undefined;
+
+async function cleanPreviousNodes() {
+  execSync("yarn graph-local-clean", {
+    cwd: resolve(__dirname, ".."),
+    stdio: log,
+  });
+  try {
+    await killPort(19008);
+  } catch (error) {}
+}
+
+async function wait(sec: number) {
+  return await new Promise((r) => {
+    setTimeout(() => {
+      r(null);
+    }, 1000 * sec);
   });
 }

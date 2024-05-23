@@ -65,28 +65,37 @@ export async function invokeContract<C, M extends keyof C["methods"]>(
     new Web3.providers.HttpProvider(`http://${"127.0.0.1"}:${_getPort()}`)
   );
   return new Promise<void>(async (r, rej) => {
-    const txHash = await new Promise<string>((r, rej) => {
-      call.on("transactionHash", (tX: string) => {
-        r(tX);
+    try {
+      const txHash = await new Promise<string>((r, rej) => {
+        call.on("transactionHash", (tX: string) => {
+          r(tX);
+        });
+        call.catch((e) => {
+          rej(e);
+        });
       });
-      call.catch(rej);
-    });
-    while (true) {
-      const transaction = await web3.eth.getTransactionReceipt(txHash);
+      while (true) {
+        const transaction = await web3.eth.getTransactionReceipt(txHash);
 
-      const isMined =
-        !transaction ||
-        !transaction.blockHash ||
-        transaction.status === undefined
-          ? undefined // I still don't know if it's loaded
-          : !!transaction.status === true;
-      if (isMined === undefined) {
-        await new Promise<void>((r) => setTimeout(() => r(), 1000));
-      } else {
-        if (isMined) r();
-        else rej(new Error(`Transaction failed, check the logs`));
-        break;
+        const isMined =
+          !transaction ||
+          !transaction.blockHash ||
+          transaction.status === undefined
+            ? undefined // I still don't know if it's loaded
+            : !!transaction.status === true;
+        if (isMined === undefined) {
+          await new Promise<void>((r) => setTimeout(() => r(), 1000));
+        } else {
+          if (isMined) {
+            r();
+          } else {
+            rej(new Error(`Transaction failed, check the logs`));
+          }
+          break;
+        }
       }
+    } catch (e) {
+      rej(e);
     }
   }) as any;
 }

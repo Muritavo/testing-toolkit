@@ -11,7 +11,8 @@
     "prepack": "tsc",
     "test": "jest --watchAll",
     "graph-codegen": "cd ./test/graphs/simple-graph && graph codegen",
-    "graph-build": "cd ./test/graphs/simple-graph && graph build"
+    "graph-build": "cd ./test/graphs/simple-graph && graph build",
+    "graph-local-clean": "docker-compose down -v && docker-compose rm -v && rm -rf data/ipfs data/postgres"
   },
   "repository": {
     "type": "git",
