@@ -2,7 +2,7 @@ node_modules
 dist/
 cache/
 artifacts/
-hardhat.config.cjs
+hardhat.config.*
 # Subgraph
 test/graphs/**/generated
 test/graphs/**/build

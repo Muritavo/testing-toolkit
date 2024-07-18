@@ -7,7 +7,6 @@ import {
 } from "../src/native/blockchain";
 import { invokeContract, setPort } from "../src/client/blockchain";
 import { ApolloClient, InMemoryCache, gql } from "@apollo/client";
-import { execSync } from "child_process";
 import killPort from "kill-port";
 
 describe("Wallet", () => {
@@ -33,7 +32,12 @@ describe("GraphQL", () => {
   beforeEach(async () => {
     await cleanPreviousNodes();
   });
-  it("Should be able to deploy a graph to local node", async () => {
+  it.only("Should be able to deploy a graph to local node", async () => {
+    const THIS_TEST_GRAPH_NAME 
+    // = `test-graph-${(
+    //   Math.random() * 1000000
+    // ).toFixed(0)}`;
+    = "testing-toolkit-random22"
     async function setupBlockchainNode() {
       const wallets = await startBlockchain({
         projectRootFolder: resolve(__dirname, ".."),
@@ -51,7 +55,12 @@ describe("GraphQL", () => {
       };
     }
     async function executeTestQuery() {
-      const dynamicGraphName = "testing-toolkit-random";
+      await new Promise((r) => {
+        setTimeout(() => {
+          r(null);
+        }, 3000);
+      });
+      const dynamicGraphName = THIS_TEST_GRAPH_NAME;
       const qlClient = new ApolloClient({
         cache: new InMemoryCache(),
         uri: `http://0.0.0.0:8000/subgraphs/name/${dynamicGraphName}`,
@@ -77,7 +86,14 @@ describe("GraphQL", () => {
     await invokeContract(wallet, contract, "echoSend", "0x9");
     await wait(5);
 
-    await deployGraph(resolve(__dirname, "graphs", "simple-graph"), contracts);
+    // await wait(2000);
+    /** It seems this test is failing to deploy because the hardhat is getting stuck because of execSync */
+    await deployGraph(
+      resolve(__dirname, "graphs", "simple-graph"),
+      contracts,
+      THIS_TEST_GRAPH_NAME,
+      "localhost"
+    );
 
     await executeTestQuery();
 
@@ -95,7 +111,7 @@ describe("GraphQL", () => {
   });
 });
 
-it.only("Should be able to spin up blockchain server forking a preexisting network", async () => {
+it("Should be able to spin up blockchain server forking a preexisting network", async () => {
   setPort(19000);
   const wallets = await startBlockchain({
     projectRootFolder: resolve(__dirname, ".."),
@@ -161,10 +177,10 @@ const log = "ignore";
 // undefined;
 
 async function cleanPreviousNodes() {
-  execSync("yarn graph-local-clean", {
-    cwd: resolve(__dirname, ".."),
-    stdio: log,
-  });
+  // execSync("yarn graph-local-clean", {
+  //   cwd: resolve(__dirname, ".."),
+  //   stdio: log,
+  // });
   try {
     await killPort(19008);
   } catch (error) {}

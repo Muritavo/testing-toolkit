@@ -1,10 +1,11 @@
 import debug from "debug";
 import GenericContract from "../types/contract";
 import { setPort } from "../client/blockchain";
-import { execSync } from "child_process";
+import { execSync, exec } from "child_process";
 import { wait } from "../utility";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { resolve } from "path";
+import { Typed } from "ethers";
 
 export const blockchainLogger = debug("@muritavo/testing-toolkit/blockchain");
 
@@ -43,7 +44,10 @@ export async function startBlockchain({
 }) {
   if (instance) {
     const prevFork = instance.process.config.networks.hardhat.forking;
-    if (prevFork)
+    if (prevFork) {
+      const blockNumberBeforeReset =
+        await instance.process.ethers.provider.getBlockNumber();
+      /** This will clear any logs/changes made during testing */
       await instance.process.network.provider.request({
         method: "hardhat_reset",
         params: [
@@ -55,16 +59,43 @@ export async function startBlockchain({
           },
         ],
       });
+      const blockNumberAfterReset =
+        await instance.process.ethers.provider.getBlockNumber();
+      const advanceBlockNumbersBy =
+        blockNumberBeforeReset - blockNumberAfterReset;
+      /**
+       * When using graph-node, it refuses to reprocess previous blocks
+       * So in a cenario where we republish a graph after this reset, it doesn't read the new logs
+       *
+       * That's why, after the reset, we "skip" blocks back to the latest block, and continue testing from there
+       * */
+      await instance.process.network.provider.request({
+        method: "hardhat_mine",
+        params: [`0x${advanceBlockNumbersBy.toString(16)}`],
+      });
+
+      blockchainLogger(
+        `Reset hardhat state (#${blockNumberBeforeReset} to #${blockNumberAfterReset}) and now it's at block ${await instance.process.ethers.provider.getBlockNumber()}`
+      );
+    }
 
     return instance.addresses;
   }
   if (projectFolder)
     blockchainLogger(`Starting blockchain server at "${projectFolder}"`);
-  if (graphqlProject)
-    execSync("docker-compose up --detach", {
+  if (graphqlProject) {
+    execSync("docker compose up --detach", {
       cwd: graphqlProject,
       stdio: "ignore",
     });
+    process.on("SIGINT", function () {
+      execSync("docker compose down", {
+        cwd: graphqlProject,
+        stdio: "ignore",
+      });
+    });
+  }
+
   /**
    * This will start a hardhat node
    */
@@ -81,6 +112,7 @@ export async function startBlockchain({
     });
     serverInstance.run("node", {
       port,
+      noDeploy: true,
     });
   });
   const accounts = new Array(
@@ -197,7 +229,11 @@ export async function deployContract<const ABI extends any[] = []>({
           initializationKey = funcName;
       });
       if (connection[initializationKey]) {
-        await connection[initializationKey](...args);
+        /**
+         * The way to decide which overloaded function to call is to pass overrides at the end 🤡
+         * https://github.com/ethers-io/ethers.js/issues/4383
+         */
+        await connection[initializationKey](...args, Typed.overrides({}));
       }
       return {
         address: await lock.getAddress(),
@@ -224,12 +260,19 @@ export async function deployGraph(
   graphPath: string,
   contractAddresses: {
     [deployedContractName: string]: string;
-  }
+  },
+  graphName: string,
+  networkName: string
 ) {
   const { parse, stringify } = await import("yaml");
   const { default: cacheDir } = await import("find-cache-dir");
+  const graphManifestCacheDir = cacheDir({
+    name: `graph-manifest`,
+    cwd: graphPath,
+  });
+  const currentBlock = await instance.process.ethers.provider.getBlockNumber();
+
   function generateGraphManifest() {
-    const graphManifestCacheDir = cacheDir({ name: `graph-manifest` });
     const subgraphYml = parse(
       readFileSync(resolve(graphPath, "subgraph.yaml")).toString()
     );
@@ -238,12 +281,14 @@ export async function deployGraph(
     }
     subgraphYml.schema.file = relativeToAbsolutePath(subgraphYml.schema.file);
     for (let dataSource of subgraphYml.dataSources) {
-      dataSource.network = "localhost";
+      dataSource.network = networkName;
       if (!contractAddresses[dataSource.source.abi])
         throw new Error(
           `Please, provide the address for the contract "${dataSource.source.abi}" deployed on the local hardhat node`
         );
       dataSource.source.address = contractAddresses[dataSource.source.abi];
+      if (instance.process.config.networks.hardhat.forking)
+        dataSource.source.startBlock = currentBlock;
       dataSource.mapping.file = relativeToAbsolutePath(dataSource.mapping.file);
       for (let abi of dataSource.mapping.abis)
         abi.file = relativeToAbsolutePath(abi.file);
@@ -254,12 +299,16 @@ export async function deployGraph(
     writeFileSync(graphManifestPath, stringify(subgraphYml));
     return graphManifestPath;
   }
-  const stdioMode = blockchainLogger.enabled ? undefined : "ignore";
+  const stdioMode = blockchainLogger.enabled ? "inherit" : "ignore";
   while (true) {
     try {
-      execSync("yarn create-local", {
+      blockchainLogger("Trying to create graph");
+      execSync(`graph create --node http://localhost:8020/ ${graphName}`, {
         cwd: graphPath,
         stdio: stdioMode,
+        env: {
+          PATH: process.env.PATH,
+        },
       });
       break;
     } catch (error) {
@@ -268,9 +317,24 @@ export async function deployGraph(
   }
 
   const localhostGraphManifest = generateGraphManifest();
-  execSync(`yarn deploy-local ${localhostGraphManifest} -l v0.0.1`, {
-    cwd: graphPath,
-    stdio: stdioMode,
+  blockchainLogger("Trying to deploy graph");
+  await new Promise<void>((res, rej) => {
+    exec(
+      `graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 ${graphName} ${localhostGraphManifest} -l v0.0.1`,
+      {
+        cwd: graphPath,
+        env: {
+          PATH: `${process.env.PATH}`,
+        },
+      },
+      (error, stdOut) => {
+        console.log(stdOut);
+        if (error) {
+          rej(error);
+        }
+        res();
+      }
+    );
   });
 
   await wait(1000);
