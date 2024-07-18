@@ -6,6 +6,7 @@ import { wait } from "../utility";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { resolve } from "path";
 import { Typed } from "ethers";
+import { JsonRpcServer } from "hardhat/types";
 
 export const blockchainLogger = debug("@muritavo/testing-toolkit/blockchain");
 
@@ -23,6 +24,8 @@ let instance: {
   };
   addresses: Addresses;
   port: number;
+  graphqlProject: string | undefined;
+  hardhatServer: JsonRpcServer;
 } | null;
 
 export async function startBlockchain({
@@ -100,13 +103,15 @@ export async function startBlockchain({
    * This will start a hardhat node
    */
   const serverInstance = await initHardhat(projectFolder);
+  let hardhatServer: JsonRpcServer;
   await new Promise<void>((r, rej) => {
     const timeoutId = setTimeout(() => {
       rej(new Error(`Something went wrong while starting hardhat node`));
     }, 30000);
     serverInstance.tasks[
       serverInstance.taskNames.TASK_NODE_SERVER_READY
-    ].setAction(async () => {
+    ].setAction(async (args) => {
+      hardhatServer = args.server;
       clearTimeout(timeoutId);
       r();
     });
@@ -134,6 +139,8 @@ export async function startBlockchain({
     contracts: {},
     addresses: accounts,
     port,
+    graphqlProject,
+    hardhatServer,
   };
   setPort(port);
   return accounts;
@@ -338,4 +345,18 @@ export async function deployGraph(
   });
 
   await wait(1000);
+}
+
+export async function stopBlockchain() {
+  if (instance) {
+    try {
+      await instance.hardhatServer.close();
+      if (instance.graphqlProject)
+        execSync("docker compose down", {
+          cwd: instance.graphqlProject,
+          stdio: "ignore",
+        });
+    } catch (e) {}
+    instance = null;
+  }
 }

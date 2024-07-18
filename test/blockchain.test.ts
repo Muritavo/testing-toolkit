@@ -4,6 +4,7 @@ import {
   deployGraph,
   deriveWallet,
   startBlockchain,
+  stopBlockchain,
 } from "../src/native/blockchain";
 import { invokeContract, setPort } from "../src/client/blockchain";
 import { ApolloClient, InMemoryCache, gql } from "@apollo/client";
@@ -32,12 +33,12 @@ describe("GraphQL", () => {
   beforeEach(async () => {
     await cleanPreviousNodes();
   });
-  it.only("Should be able to deploy a graph to local node", async () => {
-    const THIS_TEST_GRAPH_NAME 
-    // = `test-graph-${(
-    //   Math.random() * 1000000
-    // ).toFixed(0)}`;
-    = "testing-toolkit-random22"
+  it("Should be able to deploy a graph to local node", async () => {
+    const THIS_TEST_GRAPH_NAME =
+      // = `test-graph-${(
+      //   Math.random() * 1000000
+      // ).toFixed(0)}`;
+      "testing-toolkit-random22";
     async function setupBlockchainNode() {
       const wallets = await startBlockchain({
         projectRootFolder: resolve(__dirname, ".."),
@@ -129,6 +130,37 @@ it("Should be able to spin up blockchain server forking a preexisting network", 
       "0x9"
     ).then((r) => console.log("Invoke return", r));
 });
+describe("Improvement", () => {
+  it("Should not complain about blockchain node running after test ends", async () => {
+    await startBlockchain({
+      projectRootFolder: resolve(
+        __dirname,
+        "hardhat-configs",
+        "simple-hardhat"
+      ),
+      port: 19001,
+    });
+  });
+  it.only("Should be able to close the docker compose", async () => {
+    await startBlockchain({
+      projectRootFolder: resolve(
+        __dirname,
+        "hardhat-configs",
+        "hardhat-with-graphql"
+      ),
+      graphqlProject: resolve(
+        __dirname,
+        "hardhat-configs",
+        "hardhat-with-graphql"
+      ),
+      port: 19001,
+    });
+  });
+  afterEach(async () => {
+    await stopBlockchain();
+    await wait(5);
+  });
+});
 
 async function deployTestContract() {
   return await deployContract({
@@ -181,9 +213,9 @@ async function cleanPreviousNodes() {
   //   cwd: resolve(__dirname, ".."),
   //   stdio: log,
   // });
-  try {
-    await killPort(19008);
-  } catch (error) {}
+  // try {
+  //   await killPort(19008);
+  // } catch (error) {}
 }
 
 async function wait(sec: number) {
