@@ -282,17 +282,38 @@ export async function deployGraph(
   function generateGraphManifest() {
     const subgraphYml = parse(
       readFileSync(resolve(graphPath, "subgraph.yaml")).toString()
-    );
+    ) as {
+      schema: {
+        file: string;
+      };
+      dataSources: {
+        source: {
+          abi: string;
+          address: string;
+          startBlock: number;
+        };
+        network: string;
+        mapping: {
+          file: string;
+          abis: { file: string }[];
+        };
+      }[];
+    };
     function relativeToAbsolutePath(relativePath: string) {
       return resolve(graphPath, relativePath);
     }
     subgraphYml.schema.file = relativeToAbsolutePath(subgraphYml.schema.file);
     for (let dataSource of subgraphYml.dataSources) {
-      dataSource.network = networkName;
-      if (!contractAddresses[dataSource.source.abi])
-        throw new Error(
-          `Please, provide the address for the contract "${dataSource.source.abi}" deployed on the local hardhat node`
+      /** If we don't have the address for said source, we remove the source from the deployed graph */
+      if (!contractAddresses[dataSource.source.abi]) {
+        blockchainLogger(
+          `Address for the contract "${dataSource.source.abi}" wasn't provided. Removing this data source from graph.`
         );
+        subgraphYml.dataSources[subgraphYml.dataSources.indexOf(dataSource)] =
+          undefined;
+        continue;
+      }
+      dataSource.network = networkName;
       dataSource.source.address = contractAddresses[dataSource.source.abi];
       if (instance.process.config.networks.hardhat.forking)
         dataSource.source.startBlock = currentBlock;
@@ -300,6 +321,7 @@ export async function deployGraph(
       for (let abi of dataSource.mapping.abis)
         abi.file = relativeToAbsolutePath(abi.file);
     }
+    subgraphYml.dataSources = subgraphYml.dataSources.filter(Boolean);
     const graphManifestPath = resolve(graphManifestCacheDir, `subgraph.yaml`);
     if (!existsSync(graphManifestCacheDir))
       mkdirSync(graphManifestCacheDir, { recursive: true });
@@ -327,7 +349,7 @@ export async function deployGraph(
   blockchainLogger("Trying to deploy graph");
   await new Promise<void>((res, rej) => {
     exec(
-      `graph deploy --node http://localhost:8020/ --ipfs http://localhost:5001 ${graphName} ${localhostGraphManifest} -l v0.0.1`,
+      `graph deploy --node http://localhost:8020/ --ipfs http://localhost:5031 ${graphName} ${localhostGraphManifest} -l v0.0.1`,
       {
         cwd: graphPath,
         env: {
@@ -348,14 +370,22 @@ export async function deployGraph(
 }
 
 export async function stopBlockchain() {
+  blockchainLogger(
+    "Closing blockchain infrastructure.",
+    "Has blockchain instance:",
+    String(!!instance)
+  );
   if (instance) {
     try {
-      await instance.hardhatServer.close();
-      if (instance.graphqlProject)
+      blockchainLogger("Closing hardhat server");
+      if (instance.graphqlProject) {
+        blockchainLogger("Ending graphql docker container");
         execSync("docker compose down", {
           cwd: instance.graphqlProject,
           stdio: "ignore",
         });
+      }
+      await instance.hardhatServer.close();
     } catch (e) {}
     instance = null;
   }
