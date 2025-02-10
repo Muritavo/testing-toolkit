@@ -1,6 +1,6 @@
 {
   "name": "@muritavo/testing-toolkit",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "A series of functions to help with testing",
   "main": "index.js",
   "files": [
@@ -51,6 +51,7 @@
     "@types/node-fetch": "^2.6.2",
     "kill-port": "^1.6.0",
     "node-fetch": "^1",
+    "ts-node": "^10.9.2",
     "typescript": "^5.4.2"
   }
 }

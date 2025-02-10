@@ -47,39 +47,48 @@ export async function startBlockchain({
 }) {
   if (instance) {
     const prevFork = instance.process.config.networks.hardhat.forking;
+    blockchainLogger(
+      prevFork ? `Reseting blockchain fork` : "No previous fork, skipping reset"
+    );
     if (prevFork) {
-      const blockNumberBeforeReset =
-        await instance.process.ethers.provider.getBlockNumber();
-      /** This will clear any logs/changes made during testing */
-      await instance.process.network.provider.request({
-        method: "hardhat_reset",
-        params: [
-          {
-            forking: {
-              jsonRpcUrl: prevFork.url,
-              blockNumber: prevFork.blockNumber,
+      try {
+        const blockNumberBeforeReset =
+          await instance.process.ethers.provider.getBlockNumber();
+        blockchainLogger(`Previous block number ${blockNumberBeforeReset}`);
+        /** This will clear any logs/changes made during testing */
+        await instance.process.network.provider.request({
+          method: "hardhat_reset",
+          params: [
+            {
+              forking: {
+                jsonRpcUrl: prevFork.url,
+                blockNumber: prevFork.blockNumber,
+              },
             },
-          },
-        ],
-      });
-      const blockNumberAfterReset =
-        await instance.process.ethers.provider.getBlockNumber();
-      const advanceBlockNumbersBy =
-        blockNumberBeforeReset - blockNumberAfterReset;
-      /**
-       * When using graph-node, it refuses to reprocess previous blocks
-       * So in a cenario where we republish a graph after this reset, it doesn't read the new logs
-       *
-       * That's why, after the reset, we "skip" blocks back to the latest block, and continue testing from there
-       * */
-      await instance.process.network.provider.request({
-        method: "hardhat_mine",
-        params: [`0x${advanceBlockNumbersBy.toString(16)}`],
-      });
+          ],
+        });
+        const blockNumberAfterReset =
+          await instance.process.ethers.provider.getBlockNumber();
+        blockchainLogger(`Reset back to block number ${blockNumberAfterReset}`);
+        const advanceBlockNumbersBy =
+          blockNumberBeforeReset - blockNumberAfterReset;
+        /**
+         * When using graph-node, it refuses to reprocess previous blocks
+         * So in a cenario where we republish a graph after this reset, it doesn't read the new logs
+         *
+         * That's why, after the reset, we "skip" blocks back to the latest block, and continue testing from there
+         * */
+        await instance.process.network.provider.request({
+          method: "hardhat_mine",
+          params: [`0x${advanceBlockNumbersBy.toString(16)}`],
+        });
 
-      blockchainLogger(
-        `Reset hardhat state (#${blockNumberBeforeReset} to #${blockNumberAfterReset}) and now it's at block ${await instance.process.ethers.provider.getBlockNumber()}`
-      );
+        blockchainLogger(
+          `Reset hardhat state (#${blockNumberBeforeReset} to #${blockNumberAfterReset}) and now it's at block ${await instance.process.ethers.provider.getBlockNumber()}`
+        );
+      } catch (e) {
+        blockchainLogger("Error when trying to reset fork", e)
+      }
     }
 
     return instance.addresses;

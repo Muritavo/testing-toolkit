@@ -6,6 +6,7 @@ import { LOCALHOST_DOMAIN } from "./consts";
 const log = require("debug")("@muritavo/testing-toolkit/emulator");
 let spawnResult: {
   project: string;
+  tenant: string;
   database?: string;
   process: ChildProcess;
   id: string;
@@ -59,6 +60,9 @@ export async function startEmulator(
     /** An optional flag to indicate when a new emulator instance should be created */
     suiteId?: string;
 
+    /** Tenant aware auth */
+    tenantId?: string;
+
     ports: number[];
     shouldSaveData: boolean;
     only:
@@ -68,7 +72,7 @@ export async function startEmulator(
   isRetry: boolean = false
 ) {
   const suiteId = args.suiteId || args.databaseToImport || "default";
-  log("Spawning emulator process");
+  log("Spawning emulator process with args", args);
   if (suiteId === spawnResult?.id) {
     log(`Emulator with suite id ${suiteId} already running`);
     return null;
@@ -77,6 +81,7 @@ export async function startEmulator(
     id: suiteId,
     project: args.projectId,
     database: args.databaseToImport,
+    tenant: args.tenantId,
     process: spawn(
       `firebase emulators:start -P ${args.projectId} ${
         args.databaseToImport ? `--import ${args.databaseToImport}` : ""
@@ -202,8 +207,12 @@ export async function invokeAuthAdmin<
 }) {
   const app = await _getAuthAdminInstance(projectId, port);
   const func = app[functionName];
-  await (func.bind(app) as any)(...params);
-  return null;
+  try {
+    const result = await (func.bind(app) as any)(...params);
+    return result || null;
+  } catch (e) {
+    return null;
+  }
 }
 
 let adminApp: {
@@ -218,5 +227,9 @@ async function _getAuthAdminInstance(projectId: string, authPort: string) {
   process.env.FIREBASE_AUTH_EMULATOR_HOST = `${LOCALHOST_DOMAIN}:${authPort}`;
   adminApp[projectId] =
     adminApp[projectId] || initializeApp({ projectId }, projectId);
-  return getAuth(adminApp[projectId]);
+  if (spawnResult.tenant)
+    return getAuth(adminApp[projectId])
+      .tenantManager()
+      .authForTenant(spawnResult.tenant);
+  else return getAuth(adminApp[projectId]);
 }
