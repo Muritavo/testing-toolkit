@@ -8,7 +8,7 @@ let spawnResult: {
   project: string;
   tenant: string;
   database?: string;
-  process: ChildProcess;
+  process: ChildProcess | undefined;
   id: string;
 };
 function WaitTimeout(ml = 200) {
@@ -44,6 +44,28 @@ export async function killEmulator() {
   });
 }
 
+export async function registerEmulator({
+  databaseToImport,
+  projectId,
+  suiteId,
+  process,
+  tenantId,
+}: {
+  suiteId: string;
+  projectId: string;
+  databaseToImport: string;
+  tenantId?: string;
+  process?: ChildProcess;
+}) {
+  spawnResult = {
+    id: suiteId,
+    project: projectId,
+    database: databaseToImport,
+    tenant: tenantId,
+    process,
+  };
+}
+
 /**
  * With this you can start an firebase emulator
  * @param args Check property typings for details
@@ -63,6 +85,9 @@ export async function startEmulator(
     /** Tenant aware auth */
     tenantId?: string;
 
+    /** The starting directory */
+    startAtCwd?: string;
+
     ports: number[];
     shouldSaveData: boolean;
     only:
@@ -77,11 +102,16 @@ export async function startEmulator(
     log(`Emulator with suite id ${suiteId} already running`);
     return null;
   } else await killEmulator();
-  spawnResult = {
-    id: suiteId,
-    project: args.projectId,
-    database: args.databaseToImport,
-    tenant: args.tenantId,
+
+  /** Clears node options so ts-loader is not ovewritten by cypress */
+  delete process.env.NODE_OPTIONS;
+  log("Spawning emulator with env", process.env);
+
+  registerEmulator({
+    suiteId,
+    projectId: args.projectId,
+    databaseToImport: args.databaseToImport,
+    tenantId: args.tenantId,
     process: spawn(
       `firebase emulators:start -P ${args.projectId} ${
         args.databaseToImport ? `--import ${args.databaseToImport}` : ""
@@ -89,12 +119,12 @@ export async function startEmulator(
         args.only.length ? `--only=${args.only.join(",")}` : ""
       }`,
       {
-        cwd: undefined,
+        cwd: args.startAtCwd,
         env: process.env,
         shell: true,
       }
     ),
-  };
+  });
 
   /**
    * This script exists so we can start an emulator from inside cypress
