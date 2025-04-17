@@ -51,7 +51,6 @@ export const setupEmulator = async (
   await testEnv.withSecurityRulesDisabled(async (ctx: any) => {
     await cb(
       ctx.firestore({
-        experimentalForceLongPolling: true,
         merge: true,
       }),
       ctx.storage(storageBucket)
