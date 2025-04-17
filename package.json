@@ -52,6 +52,7 @@
     "kill-port": "^1.6.0",
     "node-fetch": "^1",
     "ts-node": "^10.9.2",
+    "type-fest": "^4.40.0",
     "typescript": "^5.4.2"
   }
 }
