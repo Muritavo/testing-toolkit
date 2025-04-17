@@ -1,5 +1,8 @@
 import { resolve } from "path";
 import {
+  Addresses,
+  bindToBlockchain,
+  blockchainLogger,
   deployContract,
   deployGraph,
   deriveWallet,
@@ -30,9 +33,6 @@ describe("Wallet", () => {
 });
 
 describe("GraphQL", () => {
-  beforeEach(async () => {
-    await cleanPreviousNodes();
-  });
   it("Should be able to deploy a graph to local node", async () => {
     const THIS_TEST_GRAPH_NAME =
       // = `test-graph-${(
@@ -106,19 +106,10 @@ describe("GraphQL", () => {
     await wait(5);
     await executeTestQuery();
   });
-
-  afterEach(() => {
-    cleanPreviousNodes();
-  });
 });
 
-it("Should be able to spin up blockchain server forking a preexisting network", async () => {
-  setPort(19000);
-  const wallets = await startBlockchain({
-    projectRootFolder: resolve(__dirname, ".."),
-    port: 19000,
-  });
-  const { address, contract } = await deployTestContract();
+async function testContractDeployment(wallets: Addresses) {
+  const { address, contract, owner } = await deployTestContract();
   await invokeContract(Object.keys(wallets)[0], contract, "echo", "0x9").then(
     (r) => console.log("Invoke return", r)
   );
@@ -129,6 +120,15 @@ it("Should be able to spin up blockchain server forking a preexisting network", 
       "echoSend",
       "0x9"
     ).then((r) => console.log("Invoke return", r));
+}
+
+it("Should be able to spin up blockchain server forking a preexisting network", async () => {
+  setPort(19000);
+  const wallets = await startBlockchain({
+    projectRootFolder: resolve(__dirname, ".."),
+    port: 19000,
+  });
+  await testContractDeployment(wallets);
 });
 describe("Improvement", () => {
   it("Should not complain about blockchain node running after test ends", async () => {
@@ -141,7 +141,7 @@ describe("Improvement", () => {
       port: 19001,
     });
   });
-  it.only("Should be able to close the docker compose", async () => {
+  it("Should be able to close the docker compose", async () => {
     await startBlockchain({
       projectRootFolder: resolve(
         __dirname,
@@ -156,9 +156,24 @@ describe("Improvement", () => {
       port: 19001,
     });
   });
+  it.only("Should bind to running blockchain node", async () => {
+    const blockchainConfig = {
+      projectFolder: resolve(__dirname, "hardhat-configs", "hardhat-with-graphql"),
+      hardhatConfigImportPromiseFactory: () =>
+        import("./hardhat-configs/hardhat-with-graphql/hardhat.config").then(
+          (m) => m.default
+        ),
+      port: 8545,
+    };
+    blockchainLogger.enabled = true;
+    setPort(8545);
+    const wallets = await bindToBlockchain(blockchainConfig);
+    await testContractDeployment(wallets);
+    await bindToBlockchain(blockchainConfig);
+  });
   afterEach(async () => {
     await stopBlockchain();
-    await wait(5);
+    // await wait(5);
   });
 });
 
@@ -206,17 +221,6 @@ async function deployTestContract() {
 jest.mock("web3", () => require("web3v4"));
 
 const log = "ignore";
-// undefined;
-
-async function cleanPreviousNodes() {
-  // execSync("yarn graph-local-clean", {
-  //   cwd: resolve(__dirname, ".."),
-  //   stdio: log,
-  // });
-  // try {
-  //   await killPort(19008);
-  // } catch (error) {}
-}
 
 async function wait(sec: number) {
   return await new Promise((r) => {

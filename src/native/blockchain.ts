@@ -7,15 +7,12 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { resolve } from "path";
 import { Typed } from "ethers";
 import { JsonRpcServer } from "hardhat/types";
-
+import { PartialDeep } from "type-fest";
 export const blockchainLogger = debug("@muritavo/testing-toolkit/blockchain");
 
 // This register the tasks for deploying a hardhat blockchain
-type Addresses = { [wallet: string]: { secretKey: string } };
+export type Addresses = { [wallet: string]: { secretKey: string } };
 let instance: {
-  process: typeof import("hardhat") & {
-    ethers: import("@nomicfoundation/hardhat-ethers/types").HardhatEthersHelpers;
-  };
   rootFolder?: string;
   contracts: {
     [id: string]: {
@@ -23,10 +20,118 @@ let instance: {
     };
   };
   addresses: Addresses;
-  port: number;
   graphqlProject: string | undefined;
-  hardhatServer: JsonRpcServer;
+  process?: typeof import("hardhat") & {
+    ethers: import("@nomicfoundation/hardhat-ethers/types").HardhatEthersHelpers;
+  };
+  port?: number;
+  hardhatServer?: JsonRpcServer;
 } | null;
+
+export async function bindToBlockchain({
+  projectFolder,
+  graphqlProject,
+  hardhatConfigImportPromiseFactory,
+  port,
+}: {
+  projectFolder: string;
+  graphqlProject?: string;
+  hardhatConfigImportPromiseFactory: () => Promise<
+    PartialDeep<
+      typeof import("../../test/hardhat-configs/hardhat-with-graphql/hardhat.config")["default"]
+    >
+  >;
+  port: number;
+}) {
+  const { ethers } = await initHardhat(projectFolder);
+  const projectConfig = await hardhatConfigImportPromiseFactory();
+
+  if (instance) {
+    const prevFork = projectConfig.networks.hardhat.forking;
+    blockchainLogger(
+      prevFork ? `Reseting blockchain fork` : "No previous fork, skipping reset"
+    );
+    if (prevFork) {
+      try {
+        const blockNumberBeforeReset = await ethers.provider.getBlockNumber();
+        blockchainLogger(`Previous block number ${blockNumberBeforeReset}`);
+        /** This will clear any logs/changes made during testing */
+        await ethers.provider.send("hardhat_reset", [
+          {
+            forking: {
+              jsonRpcUrl: prevFork.url,
+              blockNumber: prevFork.blockNumber,
+            },
+          },
+        ]);
+        const blockNumberAfterReset = await ethers.provider.getBlockNumber();
+        blockchainLogger(`Reset back to block number ${blockNumberAfterReset}`);
+        const advanceBlockNumbersBy =
+          blockNumberBeforeReset - blockNumberAfterReset;
+        /**
+         * When using graph-node, it refuses to reprocess previous blocks
+         * So in a cenario where we republish a graph after this reset, it doesn't read the new logs
+         *
+         * That's why, after the reset, we "skip" blocks back to the latest block, and continue testing from there
+         * */
+        await ethers.provider.send("hardhat_mine", [
+          `0x${advanceBlockNumbersBy.toString(16)}`,
+        ]);
+
+        blockchainLogger(
+          `Reset hardhat state (#${blockNumberBeforeReset} to #${blockNumberAfterReset}) and now it's at block ${await ethers.provider.getBlockNumber()}`
+        );
+      } catch (e) {
+        blockchainLogger("Error when trying to reset fork", e);
+      }
+    }
+
+    return instance.addresses;
+  }
+  if (projectFolder)
+    blockchainLogger(`Starting blockchain server at "${projectFolder}"`);
+  if (graphqlProject) {
+    execSync("docker compose up --detach", {
+      cwd: graphqlProject,
+      stdio: "ignore",
+    });
+    process.on("SIGINT", function () {
+      execSync("docker compose down", {
+        cwd: graphqlProject,
+        stdio: "ignore",
+      });
+    });
+  }
+
+  /**
+   * This will start a hardhat node
+   */
+  // const serverInstance = await initHardhat(projectFolder);
+  // let hardhatServer: JsonRpcServer;
+  const accounts = new Array(30).fill(undefined).reduce((res, _, idx) => {
+    const account = deriveWallet(idx, {
+      ethers: ethers,
+      config: projectConfig,
+    });
+    return {
+      ...res,
+      [account.address]: {
+        secretKey: account.key,
+      },
+    };
+  }, {}) as { [wallet: string]: { secretKey: string } };
+  instance = {
+    // process: serverInstance,
+    rootFolder: projectFolder,
+    contracts: {},
+    addresses: accounts,
+    port,
+    graphqlProject,
+    // hardhatServer,
+  };
+  // setPort(port);
+  return accounts;
+}
 
 export async function startBlockchain({
   projectRootFolder: projectFolder,
@@ -87,7 +192,7 @@ export async function startBlockchain({
           `Reset hardhat state (#${blockNumberBeforeReset} to #${blockNumberAfterReset}) and now it's at block ${await instance.process.ethers.provider.getBlockNumber()}`
         );
       } catch (e) {
-        blockchainLogger("Error when trying to reset fork", e)
+        blockchainLogger("Error when trying to reset fork", e);
       }
     }
 
@@ -158,9 +263,10 @@ export async function startBlockchain({
 export function deriveWallet(index: number = 0, hardhat: any) {
   const ethers = hardhat.ethers as typeof import("ethers");
   const accounts = hardhat.config.networks.hardhat.accounts;
+  const accountPath = accounts.path ?? "m/44'/60'/0'/0";
   const wallet = ethers.HDNodeWallet.fromMnemonic(
     ethers.Mnemonic.fromPhrase(accounts.mnemonic),
-    accounts.path + `/${index}`
+    accountPath + `/${index}`
   );
   return {
     key: wallet.privateKey,
@@ -173,6 +279,9 @@ async function initHardhat(dir: string) {
   process.chdir(dir);
   try {
     const hardhat = (await (async () => {
+      if (require) require("hardhat/register");
+      else (await import("hardhat/register")).default;
+
       if (require) return require("hardhat");
       else return (await import("hardhat")).default;
     })()) as typeof import("hardhat") & {
@@ -183,9 +292,13 @@ async function initHardhat(dir: string) {
       else return await import("hardhat/builtin-tasks/task-names");
     })()) as typeof import("hardhat/builtin-tasks/task-names");
     process.chdir(startingDir);
-    return hardhat as typeof hardhat & {
+    const ret = hardhat as typeof hardhat & {
       ethers: import("@nomicfoundation/hardhat-ethers/types").HardhatEthersHelpers;
     };
+    ret.ethers.provider = new ret.ethers.JsonRpcProvider(
+      `http://${"127.0.0.1"}:${8545}`
+    ) as any;
+    return ret;
   } catch (e) {
     process.chdir(startingDir);
     throw e;
