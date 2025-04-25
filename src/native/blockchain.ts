@@ -6,8 +6,9 @@ import { wait } from "../utility";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { resolve } from "path";
 import { Typed } from "ethers";
-import { JsonRpcServer } from "hardhat/types";
+import { HardhatUserConfig, JsonRpcServer } from "hardhat/types";
 import { PartialDeep } from "type-fest";
+import { DeploymentsExtension } from "hardhat-deploy/types";
 export const blockchainLogger = debug("@muritavo/testing-toolkit/blockchain");
 
 // This register the tasks for deploying a hardhat blockchain
@@ -26,6 +27,9 @@ let instance: {
   };
   port?: number;
   hardhatServer?: JsonRpcServer;
+  initialBlock?: number;
+  network: Awaited<ReturnType<typeof initHardhat>>["network"];
+  ethers: Awaited<ReturnType<typeof initHardhat>>["ethers"];
 } | null;
 
 export async function bindToBlockchain({
@@ -33,17 +37,18 @@ export async function bindToBlockchain({
   graphqlProject,
   hardhatConfigImportPromiseFactory,
   port,
+  deployTags,
 }: {
+  port: number;
   projectFolder: string;
   graphqlProject?: string;
   hardhatConfigImportPromiseFactory: () => Promise<
-    PartialDeep<
-      typeof import("../../test/hardhat-configs/hardhat-with-graphql/hardhat.config")["default"]
-    >
+    PartialDeep<HardhatUserConfig>
   >;
-  port: number;
+  deployTags: undefined | string[];
 }) {
-  const { ethers } = await initHardhat(projectFolder);
+  const { ethers, ...other } = await initHardhat(projectFolder);
+
   const projectConfig = await hardhatConfigImportPromiseFactory();
 
   if (instance) {
@@ -54,33 +59,51 @@ export async function bindToBlockchain({
     if (prevFork) {
       try {
         const blockNumberBeforeReset = await ethers.provider.getBlockNumber();
-        blockchainLogger(`Previous block number ${blockNumberBeforeReset}`);
-        /** This will clear any logs/changes made during testing */
-        await ethers.provider.send("hardhat_reset", [
-          {
-            forking: {
-              jsonRpcUrl: prevFork.url,
-              blockNumber: prevFork.blockNumber,
+        if (prevFork.blockNumber === blockNumberBeforeReset) {
+          blockchainLogger(
+            "Skipping hardhat reset as there was no mined blocks",
+            `Current block is ${blockNumberBeforeReset}`
+          );
+        } else {
+          blockchainLogger(`Previous block number ${blockNumberBeforeReset}`);
+          /** This will clear any logs/changes made during testing */
+          await ethers.provider.send("hardhat_reset", [
+            {
+              forking: {
+                jsonRpcUrl: prevFork.url,
+                blockNumber: prevFork.blockNumber,
+              },
             },
-          },
-        ]);
-        const blockNumberAfterReset = await ethers.provider.getBlockNumber();
-        blockchainLogger(`Reset back to block number ${blockNumberAfterReset}`);
-        const advanceBlockNumbersBy =
-          blockNumberBeforeReset - blockNumberAfterReset;
-        /**
-         * When using graph-node, it refuses to reprocess previous blocks
-         * So in a cenario where we republish a graph after this reset, it doesn't read the new logs
-         *
-         * That's why, after the reset, we "skip" blocks back to the latest block, and continue testing from there
-         * */
-        await ethers.provider.send("hardhat_mine", [
-          `0x${advanceBlockNumbersBy.toString(16)}`,
-        ]);
+          ]);
+          const blockNumberAfterReset = await ethers.provider.getBlockNumber();
+          blockchainLogger(
+            `Reset back to block number ${blockNumberAfterReset}`
+          );
+          const advanceBlockNumbersBy =
+            blockNumberBeforeReset - blockNumberAfterReset;
+          /**
+           * When using graph-node, it refuses to reprocess previous blocks
+           * So in a cenario where we republish a graph after this reset, it doesn't read the new logs
+           *
+           * That's why, after the reset, we "skip" blocks back to the latest block, and continue testing from there
+           * */
+          await ethers.provider.send("hardhat_mine", [
+            `0x${advanceBlockNumbersBy.toString(16)}`,
+          ]);
+
+          blockchainLogger(
+            `Reset hardhat state (#${blockNumberBeforeReset} to #${blockNumberAfterReset}) and now it's at block ${await ethers.provider.getBlockNumber()}`
+          );
+        }
 
         blockchainLogger(
-          `Reset hardhat state (#${blockNumberBeforeReset} to #${blockNumberAfterReset}) and now it's at block ${await ethers.provider.getBlockNumber()}`
+          `Hardhat has hardhat-deploy (${String(
+            other.deployments
+          )}) and deploy tags ${deployTags}`
         );
+        if (other.deployments) {
+          await other.deployments.run(deployTags);
+        }
       } catch (e) {
         blockchainLogger("Error when trying to reset fork", e);
       }
@@ -121,13 +144,14 @@ export async function bindToBlockchain({
     };
   }, {}) as { [wallet: string]: { secretKey: string } };
   instance = {
-    // process: serverInstance,
     rootFolder: projectFolder,
     contracts: {},
     addresses: accounts,
     port,
     graphqlProject,
-    // hardhatServer,
+    initialBlock: await ethers.provider.getBlockNumber(),
+    network: other.network,
+    ethers: ethers,
   };
   // setPort(port);
   return accounts;
@@ -255,6 +279,8 @@ export async function startBlockchain({
     port,
     graphqlProject,
     hardhatServer,
+    network: serverInstance.network,
+    ethers: serverInstance.ethers,
   };
   setPort(port);
   return accounts;
@@ -294,10 +320,16 @@ async function initHardhat(dir: string) {
     process.chdir(startingDir);
     const ret = hardhat as typeof hardhat & {
       ethers: import("@nomicfoundation/hardhat-ethers/types").HardhatEthersHelpers;
+    } & {
+      deployments?: DeploymentsExtension;
     };
-    ret.ethers.provider = new ret.ethers.JsonRpcProvider(
-      `http://${"127.0.0.1"}:${8545}`
+    const eth = ret.ethers as unknown as typeof import("ethers");
+    ret.ethers.provider = new eth.JsonRpcProvider(
+      `http://${"127.0.0.1"}:${8545}`,
+      undefined,
+      { pollingInterval: 10 }
     ) as any;
+    ret.network.provider = ret.ethers.provider as any;
     return ret;
   } catch (e) {
     process.chdir(startingDir);
@@ -511,4 +543,14 @@ export async function stopBlockchain() {
     } catch (e) {}
     instance = null;
   }
+}
+
+export async function impersonateAccount(account: string) {
+  await instance.network.provider.send("hardhat_impersonateAccount", [account]);
+  const signers = await instance.ethers.getSigners();
+  const lastSigner = signers.at(-1);
+  await lastSigner.sendTransaction({
+    to: account,
+    value: "10000000000000000000",
+  });
 }

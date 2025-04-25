@@ -6,12 +6,14 @@ import {
   deployContract,
   deployGraph,
   deriveWallet,
+  impersonateAccount,
   startBlockchain,
   stopBlockchain,
 } from "../src/native/blockchain";
 import { invokeContract, setPort } from "../src/client/blockchain";
 import { ApolloClient, InMemoryCache, gql } from "@apollo/client";
-import killPort from "kill-port";
+import { ChildProcess, spawn, spawnSync } from "child_process";
+import GenericContract from "../src/types/contract";
 
 describe("Wallet", () => {
   it("Should be able to derive wallets", async () => {
@@ -108,18 +110,31 @@ describe("GraphQL", () => {
   });
 });
 
-async function testContractDeployment(wallets: Addresses) {
+function blockchainConfigFactory(foldeR: string) {
+  return {
+    projectFolder: resolve(__dirname, "hardhat-configs", foldeR),
+    hardhatConfigImportPromiseFactory: () =>
+      import(`./hardhat-configs/${foldeR}/hardhat.config`).then(
+        (m) => m.default
+      ),
+    port: 8545,
+    deployTags: undefined,
+  };
+}
+async function testContractDeployment(
+  wallets: Addresses,
+  testWithWallet: string = Object.keys(wallets)[0]
+) {
   const { address, contract, owner } = await deployTestContract();
-  await invokeContract(Object.keys(wallets)[0], contract, "echo", "0x9").then(
-    (r) => console.log("Invoke return", r)
-  );
-  for (let idx of [0, 1])
-    await invokeContract(
-      Object.keys(wallets)[idx],
-      contract,
-      "echoSend",
-      "0x9"
-    ).then((r) => console.log("Invoke return", r));
+  const addresses = Object.keys(wallets);
+  for (let wallet of [testWithWallet, addresses[1]])
+    await invokeContract(wallet, contract, "echo", "0x9").then((r) =>
+      console.log("Invoke return", r)
+    );
+  for (let wallet of [testWithWallet, addresses[1]])
+    await invokeContract(wallet, contract, "echoSend", "0x9").then((r) =>
+      console.log("Invoke return to wallet " + wallet, r)
+    );
 }
 
 it("Should be able to spin up blockchain server forking a preexisting network", async () => {
@@ -156,26 +171,126 @@ describe("Improvement", () => {
       port: 19001,
     });
   });
-  it.only("Should bind to running blockchain node", async () => {
-    const blockchainConfig = {
-      projectFolder: resolve(__dirname, "hardhat-configs", "hardhat-with-graphql"),
-      hardhatConfigImportPromiseFactory: () =>
-        import("./hardhat-configs/hardhat-with-graphql/hardhat.config").then(
-          (m) => m.default
-        ),
-      port: 8545,
-    };
+  it("Should bind to running blockchain node", async () => {
+    const blockchainConfig = blockchainConfigFactory("hardhat-with-graphql");
     blockchainLogger.enabled = true;
     setPort(8545);
     const wallets = await bindToBlockchain(blockchainConfig);
     await testContractDeployment(wallets);
     await bindToBlockchain(blockchainConfig);
   });
+  it.only("Should be able to impersonate account", async () => {
+    startUnattachedNode("simple-hardhat", false);
+    setPort(8545);
+    await wait(2);
+    const wallets = await bindToBlockchain(
+      blockchainConfigFactory("simple-hardhat")
+    );
+    await impersonateAccount("0x43F118A1581F00dFE90FEFE0f1e01a465d6E9Fa0");
+    await testContractDeployment(
+      wallets,
+      "0x43F118A1581F00dFE90FEFE0f1e01a465d6E9Fa0"
+    );
+  });
+  it("Should be able to run deploy task", async () => {
+    blockchainLogger.enabled = true;
+    const callAutoDeployedContract = async () =>
+      (await getAnotherContract()).methods
+        .echo("123")
+        .call()
+        .then((c) => console.log(c));
+    startUnattachedNode("hardhat-with-deploy", true);
+    await wait(2);
+    await bindToBlockchain(blockchainConfigFactory("hardhat-with-deploy"));
+    setPort(8545);
+    await callAutoDeployedContract();
+    await wait(2);
+    await bindToBlockchain(blockchainConfigFactory("hardhat-with-deploy"));
+    await wait(2);
+    await callAutoDeployedContract();
+    await wait(2);
+  });
   afterEach(async () => {
+    if (spawned) spawned.kill();
     await stopBlockchain();
     // await wait(5);
   });
 });
+
+const getAnotherContract = async () => {
+  const { default: Web3 } = await import("web3");
+  const web3 = new Web3(
+    new Web3.providers.HttpProvider(`http://${"127.0.0.1"}:${8545}`)
+  );
+  return new web3.eth.Contract(
+    require("./hardhat-configs/hardhat-with-deploy/artifacts/contracts/AnotherContract.sol/AnotherContract.json").abi,
+    "0x32B7F224C961b1335b7b413777399B81F8AF4905"
+  ) as GenericContract<
+    [
+      {
+        anonymous: false;
+        inputs: [
+          {
+            indexed: false;
+            internalType: "string";
+            name: "ExampleMsg";
+            type: "string";
+          }
+        ];
+        name: "ExampleEvent";
+        type: "event";
+      },
+      {
+        inputs: [
+          {
+            internalType: "uint256";
+            name: "_value";
+            type: "uint256";
+          }
+        ];
+        name: "echo";
+        outputs: [
+          {
+            internalType: "uint256";
+            name: "";
+            type: "uint256";
+          }
+        ];
+        stateMutability: "view";
+        type: "function";
+      },
+      {
+        inputs: [
+          {
+            internalType: "uint256";
+            name: "_value";
+            type: "uint256";
+          }
+        ];
+        name: "echoSend";
+        outputs: [];
+        stateMutability: "nonpayable";
+        type: "function";
+      }
+    ]
+  >;
+};
+
+let spawned: ChildProcess;
+function startUnattachedNode(folder: string, withTags: boolean) {
+  const p = resolve(`./test/hardhat-configs/${folder}`);
+  spawned = spawn(
+    `yarn hardhat --config ${p}/hardhat.config.ts --network hardhat node${
+      withTags ? " --tags example-tag" : ""
+    }`,
+    {
+      cwd: p,
+      stdio: "inherit",
+      env: process.env,
+      shell: true,
+    }
+  );
+}
 
 async function deployTestContract() {
   return await deployContract({

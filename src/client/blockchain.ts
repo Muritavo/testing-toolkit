@@ -1,3 +1,4 @@
+import { Wallet } from "ethers";
 import GenericContract, { MapTypeToJS } from "../types/contract";
 import Web3 from "web3";
 
@@ -23,7 +24,7 @@ using the setPort from "@muritavo/testing-toolkit/dist/client/blockchain"`
 
 /// @ts-expect-error
 export async function invokeContract<C, M extends keyof C["methods"]>(
-  wallet: string,
+  wallet: string | Wallet,
   _contract: C,
   contractMethodName: M,
   /// @ts-expect-error
@@ -53,17 +54,43 @@ export async function invokeContract<C, M extends keyof C["methods"]>(
         .catch((e) => rej(e));
     });
 
-  const call: any = (contract.methods[contractMethodName as string] as any)(
-    /// @ts-ignore
-    ...(params as any)
-  ).send({
-    from: wallet,
-    gas: 90000000,
-    gasPrice: "90000000000",
-  });
   const web3 = new Web3(
     new Web3.providers.HttpProvider(`http://${"127.0.0.1"}:${_getPort()}`)
   );
+  let call: any;
+  if (typeof wallet === "string") {
+    call = (contract.methods[contractMethodName as string] as any)(
+      /// @ts-ignore
+      ...(params as any)
+    ).send({
+      from: wallet,
+      gas: 90000000,
+      gasPrice: "90000000000",
+    });
+  } else {
+    const web3 = new Web3("http://localhost:8545");
+    const data = (contract.methods[contractMethodName as string] as any)(
+      /// @ts-ignore
+      ...(params as any)
+    ).encodeABI();
+
+    const gasPrice = Number(await web3.eth.getGasPrice());
+    const tx = {
+      to: contract.options.address,
+      data,
+      gasPrice, // use this directly
+      gasLimit: await web3.eth.estimateGas({
+        to: contract.options.address,
+        data,
+        from: wallet.address,
+      }),
+      nonce: await web3.eth.getTransactionCount(wallet.address),
+      chainId: await web3.eth.getChainId(),
+    };
+
+    const signedTx = await wallet.signTransaction(tx);
+    call = web3.eth.sendSignedTransaction(signedTx);
+  }
   return new Promise<void>(async (r, rej) => {
     try {
       const txHash = await new Promise<string>((r, rej) => {
