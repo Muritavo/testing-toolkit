@@ -105,7 +105,6 @@ export async function startEmulator(
 
   /** Clears node options so ts-loader is not ovewritten by cypress */
   delete process.env.NODE_OPTIONS;
-  log("Spawning emulator with env", process.env);
 
   registerEmulator({
     suiteId,
@@ -160,10 +159,15 @@ export async function startEmulator(
       data = data.toString();
       scriptOutput += data;
     });
+    spawnResult.process.stderr!.on("data", function (data) {
+      data = data.toString();
+      scriptOutput += data;
+    });
 
     spawnResult.process.on("close", (e) => {
       clearTimeout(timeout);
       log("Emulator closed with", e);
+      log("Reason", scriptOutput)
       const unavailablePorts = args.ports.filter((p) =>
         scriptOutput.includes(String(p))
       );

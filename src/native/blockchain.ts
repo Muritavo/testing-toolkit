@@ -6,7 +6,10 @@ import { wait } from "../utility";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { resolve } from "path";
 import { Typed } from "ethers";
-import { HardhatUserConfig, JsonRpcServer } from "hardhat/types";
+import {
+  HardhatUserConfig,
+  JsonRpcServer,
+} from "hardhat/types";
 import { PartialDeep } from "type-fest";
 import { DeploymentsExtension } from "hardhat-deploy/types";
 export const blockchainLogger = debug("@muritavo/testing-toolkit/blockchain");
@@ -39,6 +42,34 @@ export async function updateSnapshot() {
   instance.snapshotId = snapshotId;
 }
 
+export async function createSnapshot() {
+  return await instance.network.provider.send("evm_snapshot");
+}
+export async function restoreSnapshot(snapId: string) {
+  const blockNumberBeforeReset =
+    await instance.ethers.provider.getBlockNumber();
+  blockchainLogger(`Previous block number ${blockNumberBeforeReset}`);
+  /** This will clear any logs/changes made during testing */
+  await instance.ethers.provider.send("evm_revert", [snapId]);
+  const blockNumberAfterReset = await instance.ethers.provider.getBlockNumber();
+  blockchainLogger(`Reset back to block number ${blockNumberAfterReset}`);
+  const advanceBlockNumbersBy = blockNumberBeforeReset - blockNumberAfterReset;
+  /**
+   * When using graph-node, it refuses to reprocess previous blocks
+   * So in a cenario where we republish a graph after this reset, it doesn't read the new logs
+   *
+   * That's why, after the reset, we "skip" blocks back to the latest block, and continue testing from there
+   * */
+  await instance.ethers.provider.send("hardhat_mine", [
+    `0x${advanceBlockNumbersBy.toString(16)}`,
+  ]);
+
+  blockchainLogger(
+    `Reset hardhat state (#${blockNumberBeforeReset} to #${blockNumberAfterReset}) and now it's at block ${await instance.ethers.provider.getBlockNumber()}`
+  );
+  return createSnapshot();
+}
+
 export async function bindToBlockchain({
   projectFolder,
   graphqlProject,
@@ -54,7 +85,7 @@ export async function bindToBlockchain({
   >;
   deployTags: undefined | string[];
 }) {
-  const { ethers, ...other } = await initHardhat(projectFolder);
+  const { ethers, ...other } = await initHardhat(projectFolder, true);
 
   const projectConfig = await hardhatConfigImportPromiseFactory();
 
@@ -71,34 +102,7 @@ export async function bindToBlockchain({
           `Current block is ${blockNumberBeforeReset}`
         );
       } else {
-        blockchainLogger(`Previous block number ${blockNumberBeforeReset}`);
-        /** This will clear any logs/changes made during testing */
-        await ethers.provider.send("evm_revert", [instance.snapshotId]);
-        // await ethers.provider.send("hardhat_reset", [
-        //   {
-        //     forking: {
-        //       jsonRpcUrl: prevFork.url,
-        //       blockNumber: prevFork.blockNumber,
-        //     },
-        //   },
-        // ]);
-        const blockNumberAfterReset = await ethers.provider.getBlockNumber();
-        blockchainLogger(`Reset back to block number ${blockNumberAfterReset}`);
-        const advanceBlockNumbersBy =
-          blockNumberBeforeReset - blockNumberAfterReset;
-        /**
-         * When using graph-node, it refuses to reprocess previous blocks
-         * So in a cenario where we republish a graph after this reset, it doesn't read the new logs
-         *
-         * That's why, after the reset, we "skip" blocks back to the latest block, and continue testing from there
-         * */
-        await ethers.provider.send("hardhat_mine", [
-          `0x${advanceBlockNumbersBy.toString(16)}`,
-        ]);
-
-        blockchainLogger(
-          `Reset hardhat state (#${blockNumberBeforeReset} to #${blockNumberAfterReset}) and now it's at block ${await ethers.provider.getBlockNumber()}`
-        );
+        instance.snapshotId = await restoreSnapshot(instance.snapshotId);
       }
 
       blockchainLogger(
@@ -109,8 +113,6 @@ export async function bindToBlockchain({
     } catch (e) {
       blockchainLogger("Error when trying to reset fork", e);
     }
-    const snapshotId = await other.network.provider.send("evm_snapshot");
-    instance.snapshotId = snapshotId;
 
     return instance.addresses;
   }
@@ -142,7 +144,18 @@ export async function bindToBlockchain({
     };
   }, {}) as { [wallet: string]: { secretKey: string } };
   if (other.deployments) {
-    await other.deployments.run(deployTags);
+    try {
+      await other.deployments.run(deployTags);
+    } catch (e) {
+      if (String(e.message).includes("to equal 100000000000000000000")) {
+        await other.network.provider.send("hardhat_reset");
+        if (instance) instance.snapshotId = undefined;
+        await other.deployments.run(deployTags);
+      } else {
+        console.log("Unknown error", String(e.message));
+        throw e;
+      }
+    }
   }
   const snapshotId = await other.network.provider.send("evm_snapshot");
   // ... do stuff
@@ -165,6 +178,7 @@ export async function startBlockchain({
   projectRootFolder: projectFolder,
   port = 8545,
   graphqlProject,
+  deployTags,
 }: {
   /** The NFT projects root folder so the contracts can be deployed from */
   projectRootFolder: string;
@@ -177,31 +191,30 @@ export async function startBlockchain({
    * Adds support for graphql for listening to blockchain events and indexing information.
    */
   graphqlProject?: string;
+  deployTags: undefined | string[];
 }) {
+  const serverInstance = await initHardhat(projectFolder, false);
   if (instance) {
     const prevFork = instance.process.config.networks.hardhat.forking;
     blockchainLogger(
       prevFork ? `Reseting blockchain fork` : "No previous fork, skipping reset"
     );
-    if (prevFork) {
-      try {
-        const blockNumberBeforeReset =
-          await instance.process.ethers.provider.getBlockNumber();
+    try {
+      const blockNumberBeforeReset =
+        await instance.ethers.provider.getBlockNumber();
+      if (prevFork.blockNumber === blockNumberBeforeReset) {
+        blockchainLogger(
+          "Skipping hardhat reset as there was no mined blocks",
+          `Current block is ${blockNumberBeforeReset}`
+        );
+      } else {
         blockchainLogger(`Previous block number ${blockNumberBeforeReset}`);
         /** This will clear any logs/changes made during testing */
-        await instance.process.network.provider.request({
-          method: "hardhat_reset",
-          params: [
-            {
-              forking: {
-                jsonRpcUrl: prevFork.url,
-                blockNumber: prevFork.blockNumber,
-              },
-            },
-          ],
-        });
+        await instance.ethers.provider.send("evm_revert", [
+          instance.snapshotId,
+        ]);
         const blockNumberAfterReset =
-          await instance.process.ethers.provider.getBlockNumber();
+          await instance.ethers.provider.getBlockNumber();
         blockchainLogger(`Reset back to block number ${blockNumberAfterReset}`);
         const advanceBlockNumbersBy =
           blockNumberBeforeReset - blockNumberAfterReset;
@@ -211,17 +224,22 @@ export async function startBlockchain({
          *
          * That's why, after the reset, we "skip" blocks back to the latest block, and continue testing from there
          * */
-        await instance.process.network.provider.request({
-          method: "hardhat_mine",
-          params: [`0x${advanceBlockNumbersBy.toString(16)}`],
-        });
+        await instance.ethers.provider.send("hardhat_mine", [
+          `0x${advanceBlockNumbersBy.toString(16)}`,
+        ]);
 
         blockchainLogger(
-          `Reset hardhat state (#${blockNumberBeforeReset} to #${blockNumberAfterReset}) and now it's at block ${await instance.process.ethers.provider.getBlockNumber()}`
+          `Reset hardhat state (#${blockNumberBeforeReset} to #${blockNumberAfterReset}) and now it's at block ${await instance.ethers.provider.getBlockNumber()}`
         );
-      } catch (e) {
-        blockchainLogger("Error when trying to reset fork", e);
       }
+
+      blockchainLogger(
+        `Hardhat has hardhat-deploy (${String(
+          serverInstance.deployments
+        )}) and deploy tags ${deployTags}`
+      );
+    } catch (e) {
+      blockchainLogger("Error when trying to reset fork", e);
     }
 
     return instance.addresses;
@@ -244,7 +262,6 @@ export async function startBlockchain({
   /**
    * This will start a hardhat node
    */
-  const serverInstance = await initHardhat(projectFolder);
   let hardhatServer: JsonRpcServer;
   await new Promise<void>((r, rej) => {
     const timeoutId = setTimeout(() => {
@@ -275,6 +292,11 @@ export async function startBlockchain({
         },
       };
     }, {}) as { [wallet: string]: { secretKey: string } };
+
+  if (serverInstance.deployments && deployTags?.length) {
+    await serverInstance.deployments.run(deployTags);
+  }
+  const snapshotId = await serverInstance.network.provider.send("evm_snapshot");
   instance = {
     process: serverInstance,
     rootFolder: projectFolder,
@@ -285,6 +307,7 @@ export async function startBlockchain({
     hardhatServer,
     network: serverInstance.network,
     ethers: serverInstance.ethers,
+    snapshotId: snapshotId,
   };
   setPort(port);
   return accounts;
@@ -304,7 +327,7 @@ export function deriveWallet(index: number = 0, hardhat: any) {
   };
 }
 
-async function initHardhat(dir: string) {
+async function initHardhat(dir: string, customNetworkProvider: boolean) {
   const startingDir = process.cwd();
   process.chdir(dir);
   try {
@@ -333,7 +356,8 @@ async function initHardhat(dir: string) {
       undefined,
       { pollingInterval: 10 }
     ) as any;
-    ret.network.provider = ret.ethers.provider as any;
+    if (customNetworkProvider)
+      ret.network.provider = ret.ethers.provider as any;
     return ret;
   } catch (e) {
     process.chdir(startingDir);
@@ -372,7 +396,7 @@ export async function deployContract<const ABI extends any[] = []>({
         await lock.getAddress()
       ) as GenericContract<ABI>;
     };
-    const { ethers } = await initHardhat(instance!.rootFolder);
+    const { ethers } = await initHardhat(instance!.rootFolder, false);
     const [owner] = await ethers.getSigners();
     const Factory = await ethers.getContractFactory(contractName);
 
