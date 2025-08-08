@@ -6,10 +6,7 @@ import { wait } from "../utility";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { resolve } from "path";
 import { Typed } from "ethers";
-import {
-  HardhatUserConfig,
-  JsonRpcServer,
-} from "hardhat/types";
+import { HardhatUserConfig, JsonRpcServer } from "hardhat/types";
 import { PartialDeep } from "type-fest";
 import { DeploymentsExtension } from "hardhat-deploy/types";
 export const blockchainLogger = debug("@muritavo/testing-toolkit/blockchain");
@@ -88,9 +85,9 @@ export async function bindToBlockchain({
   const { ethers, ...other } = await initHardhat(projectFolder, true);
 
   const projectConfig = await hardhatConfigImportPromiseFactory();
+  const prevFork = projectConfig.networks.hardhat.forking;
 
   if (instance) {
-    const prevFork = projectConfig.networks.hardhat.forking;
     blockchainLogger(
       prevFork ? `Reseting blockchain fork` : "No previous fork, skipping reset"
     );
@@ -148,7 +145,19 @@ export async function bindToBlockchain({
       await other.deployments.run(deployTags);
     } catch (e) {
       if (String(e.message).includes("to equal 100000000000000000000")) {
-        await other.network.provider.send("hardhat_reset");
+        await other.network.provider.send(
+          "hardhat_reset",
+          !prevFork
+            ? []
+            : [
+                {
+                  forking: {
+                    jsonRpcUrl: prevFork.url,
+                    blockNumber: prevFork.blockNumber,
+                  },
+                },
+              ]
+        );
         if (instance) instance.snapshotId = undefined;
         await other.deployments.run(deployTags);
       } else {
