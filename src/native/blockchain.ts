@@ -116,12 +116,12 @@ export async function bindToBlockchain({
   if (projectFolder)
     blockchainLogger(`Starting blockchain server at "${projectFolder}"`);
   if (graphqlProject) {
-    execSync("docker compose up --detach", {
+    execSync("docker-compose up --detach", {
       cwd: graphqlProject,
       stdio: "ignore",
     });
     process.on("SIGINT", function () {
-      execSync("docker compose down", {
+      execSync("docker-compose down", {
         cwd: graphqlProject,
         stdio: "ignore",
       });
@@ -256,12 +256,12 @@ export async function startBlockchain({
   if (projectFolder)
     blockchainLogger(`Starting blockchain server at "${projectFolder}"`);
   if (graphqlProject) {
-    execSync("docker compose up --detach", {
+    execSync("docker-compose up --detach", {
       cwd: graphqlProject,
       stdio: "ignore",
     });
     process.on("SIGINT", function () {
-      execSync("docker compose down", {
+      execSync("docker-compose down", {
         cwd: graphqlProject,
         stdio: "ignore",
       });
@@ -571,7 +571,7 @@ export async function stopBlockchain() {
       blockchainLogger("Closing hardhat server");
       if (instance.graphqlProject) {
         blockchainLogger("Ending graphql docker container");
-        execSync("docker compose down", {
+        execSync("docker-compose down", {
           cwd: instance.graphqlProject,
           stdio: "ignore",
         });
