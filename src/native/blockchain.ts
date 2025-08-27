@@ -217,29 +217,7 @@ export async function startBlockchain({
           `Current block is ${blockNumberBeforeReset}`
         );
       } else {
-        blockchainLogger(`Previous block number ${blockNumberBeforeReset}`);
-        /** This will clear any logs/changes made during testing */
-        await instance.ethers.provider.send("evm_revert", [
-          instance.snapshotId,
-        ]);
-        const blockNumberAfterReset =
-          await instance.ethers.provider.getBlockNumber();
-        blockchainLogger(`Reset back to block number ${blockNumberAfterReset}`);
-        const advanceBlockNumbersBy =
-          blockNumberBeforeReset - blockNumberAfterReset;
-        /**
-         * When using graph-node, it refuses to reprocess previous blocks
-         * So in a cenario where we republish a graph after this reset, it doesn't read the new logs
-         *
-         * That's why, after the reset, we "skip" blocks back to the latest block, and continue testing from there
-         * */
-        await instance.ethers.provider.send("hardhat_mine", [
-          `0x${advanceBlockNumbersBy.toString(16)}`,
-        ]);
-
-        blockchainLogger(
-          `Reset hardhat state (#${blockNumberBeforeReset} to #${blockNumberAfterReset}) and now it's at block ${await instance.ethers.provider.getBlockNumber()}`
-        );
+        instance.snapshotId = await restoreSnapshot(instance.snapshotId);
       }
 
       blockchainLogger(
