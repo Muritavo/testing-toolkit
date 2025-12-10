@@ -167,7 +167,7 @@ export async function startEmulator(
     spawnResult.process.on("close", (e) => {
       clearTimeout(timeout);
       log("Emulator closed with", e);
-      log("Reason", scriptOutput)
+      log("Reason", scriptOutput);
       const unavailablePorts = args.ports.filter((p) =>
         scriptOutput.includes(String(p))
       );
@@ -233,19 +233,22 @@ export async function invokeAuthAdmin<
   port,
   functionName,
   params,
+  overrideAuthTenant,
 }: {
   projectId: string;
   port: string;
   functionName: F;
   params: Parameters<Admin[F]>;
+  overrideAuthTenant?: string;
 }) {
-  const app = await _getAuthAdminInstance(projectId, port);
+  const app = await _getAuthAdminInstance(projectId, port, overrideAuthTenant);
   const func = app[functionName];
   try {
     const result = await (func.bind(app) as any)(...params);
     return result || null;
   } catch (e) {
-    return null;
+    if (String(e.message).includes("There is no user record")) return null;
+    throw e;
   }
 }
 
@@ -255,15 +258,19 @@ let adminApp: {
   >;
 } = {};
 
-async function _getAuthAdminInstance(projectId: string, authPort: string) {
+async function _getAuthAdminInstance(
+  projectId: string,
+  authPort: string,
+  overrideTenant: string | undefined
+) {
   const { initializeApp } = require("firebase-admin/app");
   const { getAuth } = require("firebase-admin/auth");
   process.env.FIREBASE_AUTH_EMULATOR_HOST = `${LOCALHOST_DOMAIN}:${authPort}`;
   adminApp[projectId] =
     adminApp[projectId] || initializeApp({ projectId }, projectId);
-  if (spawnResult.tenant)
+  if (overrideTenant || spawnResult.tenant)
     return getAuth(adminApp[projectId])
       .tenantManager()
-      .authForTenant(spawnResult.tenant);
+      .authForTenant(overrideTenant || spawnResult.tenant);
   else return getAuth(adminApp[projectId]);
 }

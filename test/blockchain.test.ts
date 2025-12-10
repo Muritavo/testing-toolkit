@@ -46,6 +46,7 @@ describe("GraphQL", () => {
         projectRootFolder: resolve(__dirname, ".."),
         port: 19008,
         graphqlProject: resolve(__dirname, ".."),
+        deployTags: [],
       });
       const { address, contract } = await deployTestContract();
 
@@ -142,6 +143,7 @@ it("Should be able to spin up blockchain server forking a preexisting network", 
   const wallets = await startBlockchain({
     projectRootFolder: resolve(__dirname, ".."),
     port: 19000,
+    deployTags: [],
   });
   await testContractDeployment(wallets);
 });
@@ -154,6 +156,7 @@ describe("Improvement", () => {
         "simple-hardhat"
       ),
       port: 19001,
+      deployTags: [],
     });
   });
   it("Should be able to close the docker compose", async () => {
@@ -169,6 +172,7 @@ describe("Improvement", () => {
         "hardhat-with-graphql"
       ),
       port: 19001,
+      deployTags: [],
     });
   });
   it("Should bind to running blockchain node", async () => {
@@ -179,7 +183,7 @@ describe("Improvement", () => {
     await testContractDeployment(wallets);
     await bindToBlockchain(blockchainConfig);
   });
-  it.only("Should be able to impersonate account", async () => {
+  it("Should be able to impersonate account", async () => {
     startUnattachedNode("simple-hardhat", false);
     setPort(8545);
     await wait(2);
@@ -210,6 +214,35 @@ describe("Improvement", () => {
     await callAutoDeployedContract();
     await wait(2);
   });
+  it.only("Should be able to reset to another block", async () => {
+    await startBlockchain({
+      projectRootFolder: resolve(
+        __dirname,
+        "hardhat-configs",
+        "hardhat-with-deploy"
+      ),
+      port: 8545,
+      deployTags: [],
+    });
+    await wait(2);
+    const provider = await getProvider();
+    const blockNumberBeforeRestart = await provider.eth.getBlockNumber();
+    console.log("before", blockNumberBeforeRestart);
+    await wait(2);
+    console.log("After a few seconds", await provider.eth.getBlockNumber());
+    await startBlockchain({
+      projectRootFolder: resolve(
+        __dirname,
+        "hardhat-configs",
+        "hardhat-with-deploy"
+      ),
+      port: 8545,
+      deployTags: [],
+      forkToNumber: 6000000,
+    });
+    await wait(2);
+    console.log("After reset", await provider.eth.getBlockNumber());
+  });
   afterEach(async () => {
     if (spawned) spawned.kill();
     await stopBlockchain();
@@ -217,11 +250,15 @@ describe("Improvement", () => {
   });
 });
 
-const getAnotherContract = async () => {
+const getProvider = async () => {
   const { default: Web3 } = await import("web3");
-  const web3 = new Web3(
+  return new Web3(
     new Web3.providers.HttpProvider(`http://${"127.0.0.1"}:${8545}`)
   );
+};
+
+const getAnotherContract = async () => {
+  const web3 = await getProvider();
   return new web3.eth.Contract(
     require("./hardhat-configs/hardhat-with-deploy/artifacts/contracts/AnotherContract.sol/AnotherContract.json").abi,
     "0x32B7F224C961b1335b7b413777399B81F8AF4905"

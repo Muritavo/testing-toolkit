@@ -46,49 +46,54 @@ export async function updateSnapshot() {
 export async function createSnapshot() {
   return await instance.network.provider.send("evm_snapshot");
 }
-export async function restoreSnapshot(
-  snapId: string,
-  forkInformation: Partial<
-    Pick<HardhatNetworkForkingUserConfig, "blockNumber" | "url">
-  >
-) {
+export async function restoreSnapshot(snapId: string) {
   const blockNumberBeforeReset =
     await instance.ethers.provider.getBlockNumber();
   blockchainLogger(`Previous block number ${blockNumberBeforeReset}`);
   /** This will clear any logs/changes made during testing */
   await instance.ethers.provider.send("evm_revert", [snapId]);
   const blockNumberAfterReset = await instance.ethers.provider.getBlockNumber();
-  if (
-    forkInformation.blockNumber &&
-    forkInformation.blockNumber !== blockNumberAfterReset
-  ) {
-    await instance.ethers.provider.send("hardhat_reset", [
-      {
-        forking: {
-          jsonRpcUrl: forkInformation.url,
-          blockNumber: forkInformation.blockNumber,
-        },
-      },
-    ]);
-  } else {
-    blockchainLogger(`Reset back to block number ${blockNumberAfterReset}`);
-    const advanceBlockNumbersBy =
-      blockNumberBeforeReset - blockNumberAfterReset;
-    /**
-     * When using graph-node, it refuses to reprocess previous blocks
-     * So in a cenario where we republish a graph after this reset, it doesn't read the new logs
-     *
-     * That's why, after the reset, we "skip" blocks back to the latest block, and continue testing from there
-     * */
-    await instance.ethers.provider.send("hardhat_mine", [
-      `0x${advanceBlockNumbersBy.toString(16)}`,
-    ]);
-  }
+  blockchainLogger(`Reset back to block number ${blockNumberAfterReset}`);
+  const advanceBlockNumbersBy = blockNumberBeforeReset - blockNumberAfterReset;
+  /**
+   * When using graph-node, it refuses to reprocess previous blocks
+   * So in a cenario where we republish a graph after this reset, it doesn't read the new logs
+   *
+   * That's why, after the reset, we "skip" blocks back to the latest block, and continue testing from there
+   * */
+  await instance.ethers.provider.send("hardhat_mine", [
+    `0x${advanceBlockNumbersBy.toString(16)}`,
+  ]);
 
   blockchainLogger(
     `Reset hardhat state (#${blockNumberBeforeReset} to #${blockNumberAfterReset}) and now it's at block ${await instance.ethers.provider.getBlockNumber()}`
   );
   return createSnapshot();
+}
+
+async function resetInstanceIfBlockchainBlockChanges(
+  prevFork: Partial<HardhatNetworkForkingUserConfig>,
+  forkToNumber?: number
+) {
+  const overwrittenForkInformation = {
+    ...prevFork,
+    blockNumber: forkToNumber ?? prevFork.blockNumber,
+  };
+  if (
+    instance &&
+    overwrittenForkInformation.blockNumber !== instance.initialBlock
+  ) {
+    await instance.ethers.provider.send("hardhat_reset", [
+      {
+        forking: {
+          jsonRpcUrl: overwrittenForkInformation.url,
+          blockNumber: overwrittenForkInformation.blockNumber,
+        },
+      },
+    ]);
+    instance = null;
+  }
+  return overwrittenForkInformation;
 }
 
 export async function bindToBlockchain({
@@ -113,6 +118,9 @@ export async function bindToBlockchain({
   const projectConfig = await hardhatConfigImportPromiseFactory();
   const prevFork = projectConfig.networks.hardhat.forking;
 
+  const overwrittenForkInformation =
+    await resetInstanceIfBlockchainBlockChanges(prevFork, forkToNumber);
+
   if (instance) {
     blockchainLogger(
       prevFork ? `Reseting blockchain fork` : "No previous fork, skipping reset"
@@ -125,10 +133,7 @@ export async function bindToBlockchain({
           `Current block is ${blockNumberBeforeReset}`
         );
       } else {
-        instance.snapshotId = await restoreSnapshot(instance.snapshotId, {
-          ...prevFork,
-          blockNumber: forkToNumber ?? prevFork.blockNumber,
-        });
+        instance.snapshotId = await restoreSnapshot(instance.snapshotId);
       }
 
       blockchainLogger(
@@ -203,12 +208,11 @@ export async function bindToBlockchain({
     addresses: accounts,
     port,
     graphqlProject,
-    initialBlock: await ethers.provider.getBlockNumber(),
+    initialBlock: overwrittenForkInformation.blockNumber,
     network: other.network,
     ethers: ethers,
     snapshotId: snapshotId,
   };
-  // setPort(port);
   return accounts;
 }
 
@@ -234,8 +238,10 @@ export async function startBlockchain({
   forkToNumber?: number;
 }) {
   const serverInstance = await initHardhat(projectFolder, false);
+  const prevFork = instance.process.config.networks.hardhat.forking;
+  const overwrittenForkInformation =
+    await resetInstanceIfBlockchainBlockChanges(prevFork, forkToNumber);
   if (instance) {
-    const prevFork = instance.process.config.networks.hardhat.forking;
     blockchainLogger(
       prevFork ? `Reseting blockchain fork` : "No previous fork, skipping reset"
     );
@@ -248,10 +254,7 @@ export async function startBlockchain({
           `Current block is ${blockNumberBeforeReset}`
         );
       } else {
-        instance.snapshotId = await restoreSnapshot(instance.snapshotId, {
-          ...prevFork,
-          blockNumber: forkToNumber ?? prevFork.blockNumber,
-        });
+        instance.snapshotId = await restoreSnapshot(instance.snapshotId);
       }
 
       blockchainLogger(
@@ -329,6 +332,7 @@ export async function startBlockchain({
     network: serverInstance.network,
     ethers: serverInstance.ethers,
     snapshotId: snapshotId,
+    initialBlock: overwrittenForkInformation.blockNumber,
   };
   setPort(port);
   return accounts;
