@@ -32,11 +32,11 @@ export async function killEmulator() {
         spawnResult = undefined as any;
         rej(new Error("Couldn't kill emulator"));
       }, 20000);
-      spawnResult.process.on("close", () => {
+      spawnResult!.process!.on("close", () => {
         clearTimeout(t);
         r(null);
       });
-      spawnResult.process.kill("SIGINT");
+      spawnResult!.process!.kill("SIGINT");
     } catch (e) {
       console.log("Unhandled exception", e);
       r(null);
@@ -61,7 +61,7 @@ export async function registerEmulator({
     id: suiteId,
     project: projectId,
     database: databaseToImport,
-    tenant: tenantId,
+    tenant: tenantId!,
     process,
   };
 }
@@ -109,7 +109,7 @@ export async function startEmulator(
   registerEmulator({
     suiteId,
     projectId: args.projectId,
-    databaseToImport: args.databaseToImport,
+    databaseToImport: args.databaseToImport!,
     tenantId: args.tenantId,
     process: spawn(
       `firebase emulators:start -P ${args.projectId} ${
@@ -138,10 +138,10 @@ export async function startEmulator(
       spawnResult = undefined as any;
     }, 30000);
 
-    log("Process is killed: ", spawnResult.process.killed);
-    log("Process exit code", spawnResult.process.exitCode);
+    log("Process is killed: ", spawnResult.process!.killed);
+    log("Process exit code", spawnResult.process!.exitCode);
 
-    spawnResult.process.on("error", (e) => {
+    spawnResult.process!.on("error", (e) => {
       clearTimeout(timeout);
       log("Spawning emulator process failed with error", e.message);
       rej(
@@ -150,21 +150,21 @@ export async function startEmulator(
       spawnResult = undefined as any;
     });
 
-    spawnResult.process.on("message", (e) => {
+    spawnResult.process!.on("message", (e) => {
       log("Emulator start sent message", e.toString());
     });
 
     let scriptOutput = "";
-    spawnResult.process.stdout!.on("data", function (data) {
+    spawnResult.process!.stdout!.on("data", function (data) {
       data = data.toString();
       scriptOutput += data;
     });
-    spawnResult.process.stderr!.on("data", function (data) {
+    spawnResult.process!.stderr!.on("data", function (data) {
       data = data.toString();
       scriptOutput += data;
     });
 
-    spawnResult.process.on("close", (e) => {
+    spawnResult.process!.on("close", (e) => {
       clearTimeout(timeout);
       log("Emulator closed with", e);
       log("Reason", scriptOutput);
@@ -213,7 +213,7 @@ ${scriptOutput}`
         r(null);
       } catch (e) {
         log(e);
-        log("Process is killed: ", spawnResult?.process.killed);
+        log("Process is killed: ", spawnResult?.process!.killed);
         log("Emulator is not ready yet, retrying in 1 sec");
       }
       await WaitTimeout(1000);
@@ -246,7 +246,7 @@ export async function invokeAuthAdmin<
   try {
     const result = await (func.bind(app) as any)(...params);
     return result || null;
-  } catch (e) {
+  } catch (e: any) {
     if (String(e.message).includes("There is no user record")) return null;
     throw e;
   }
