@@ -238,7 +238,7 @@ export async function startBlockchain({
   forkToNumber?: number;
 }) {
   const serverInstance = await initHardhat(projectFolder, false);
-  const prevFork = instance.process.config.networks.hardhat.forking;
+  const prevFork = instance?.process.config.networks.hardhat.forking;
   const overwrittenForkInformation =
     await resetInstanceIfBlockchainBlockChanges(prevFork, forkToNumber);
   if (instance) {
