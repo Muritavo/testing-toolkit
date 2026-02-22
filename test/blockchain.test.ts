@@ -215,6 +215,7 @@ describe("Improvement", () => {
     await wait(2);
   });
   it.only("Should be able to reset to another block", async () => {
+    blockchainLogger.enabled = true
     await startBlockchain({
       projectRootFolder: resolve(
         __dirname,

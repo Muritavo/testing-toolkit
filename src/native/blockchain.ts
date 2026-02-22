@@ -75,15 +75,13 @@ export async function restoreSnapshot(snapId: string) {
 async function resetInstanceIfBlockchainBlockChanges(
   prevFork: Partial<HardhatNetworkForkingUserConfig> | undefined,
   forkToNumber?: number,
+  killProcess: boolean = false,
 ) {
   const overwrittenForkInformation = {
     ...prevFork,
     blockNumber: forkToNumber ?? prevFork?.blockNumber,
   };
-  if (
-    instance &&
-    overwrittenForkInformation.blockNumber !== instance!.initialBlock
-  ) {
+  if (overwrittenForkInformation.blockNumber !== instance?.initialBlock) {
     await instance!.ethers.provider.send("hardhat_reset", [
       {
         forking: {
@@ -92,6 +90,9 @@ async function resetInstanceIfBlockchainBlockChanges(
         },
       },
     ]);
+    if (killProcess) {
+      await instance!.hardhatServer!.close();
+    }
     instance = null;
   }
   return overwrittenForkInformation;
@@ -242,7 +243,7 @@ export async function startBlockchain({
   const serverInstance = await initHardhat(projectFolder, false);
   const prevFork = instance?.process?.config.networks.hardhat.forking;
   const overwrittenForkInformation =
-    await resetInstanceIfBlockchainBlockChanges(prevFork, forkToNumber);
+    await resetInstanceIfBlockchainBlockChanges(prevFork, forkToNumber, true);
   if (instance) {
     blockchainLogger(
       prevFork
@@ -339,6 +340,7 @@ export async function startBlockchain({
     snapshotId: snapshotId,
     initialBlock: overwrittenForkInformation.blockNumber,
   };
+  blockchainLogger(`Set blockchain instance`);
   setPort(port);
   return accounts;
 }
