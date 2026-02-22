@@ -51,7 +51,7 @@ export async function invokeContract<C, M extends keyof C["methods"]>(
       (contract.methods[contractMethodName as string] as any)(...params)
         .call()
         .then((result: any) => r(result))
-        .catch((e) => rej(e));
+        .catch((e: any) => rej(e));
     });
 
   const web3 = new Web3(
@@ -97,7 +97,7 @@ export async function invokeContract<C, M extends keyof C["methods"]>(
         call.on("transactionHash", (tX: string) => {
           r(tX);
         });
-        call.catch((e) => {
+        call.catch((e: any) => {
           rej(e);
         });
       });

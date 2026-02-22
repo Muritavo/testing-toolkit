@@ -4,7 +4,8 @@
     "sourceMap": true,
     "declaration": true,
     "skipLibCheck": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "strict": true
   },
   "include": ["src", "src/types"]
 }
