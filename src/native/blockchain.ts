@@ -81,7 +81,7 @@ async function resetInstanceIfBlockchainBlockChanges(
     ...prevFork,
     blockNumber: forkToNumber ?? prevFork?.blockNumber,
   };
-  if (overwrittenForkInformation.blockNumber !== instance?.initialBlock) {
+  if (forkToNumber && overwrittenForkInformation.blockNumber !== instance?.initialBlock) {
     await instance!.ethers.provider.send("hardhat_reset", [
       {
         forking: {
